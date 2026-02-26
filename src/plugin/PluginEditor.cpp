@@ -11,7 +11,7 @@ SlicerPluginEditor::SlicerPluginEditor(SlicerPluginProcessor& p)
   addAndMakeVisible(topBar_);
   addAndMakeVisible(waveformView_);
   controlPanelViewport_.setViewedComponent(&controlPanel_, false);
-  controlPanelViewport_.setScrollBarsShown(true, false);
+  controlPanelViewport_.setScrollBarsShown(false, false);
   addAndMakeVisible(controlPanelViewport_);
   rearrangeButton_.setButtonText("Rearrange");
   addAndMakeVisible(rearrangeButton_);

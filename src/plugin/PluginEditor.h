@@ -2,8 +2,14 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "TopBarComponent.h"
+#include "WaveformView.h"
+#include "ControlPanel.h"
+#include "MidiMappingOverlay.h"
 
-class SlicerPluginEditor : public juce::AudioProcessorEditor
+class SlicerPluginEditor : public juce::AudioProcessorEditor,
+                           private juce::Timer,
+                           private juce::AudioProcessorValueTreeState::Listener
 {
 public:
   explicit SlicerPluginEditor(SlicerPluginProcessor&);
@@ -13,7 +19,17 @@ public:
   void resized() override;
 
 private:
-  SlicerPluginProcessor& processorRef;
+  void timerCallback() override;
+  void parameterChanged(const juce::String& id, float) override;
 
-  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SlicerPluginEditor)
+  void scheduleRegenerateSliceMap();
+
+  SlicerPluginProcessor& processorRef;
+  TopBarComponent topBar_;
+  WaveformView waveformView_;
+  juce::Viewport controlPanelViewport_;
+  ControlPanel controlPanel_;
+  MidiMappingOverlay midiMappingOverlay_;
+  juce::File lastLoadedPath_;
+  juce::int64 regenerateScheduledAt_{0};
 };

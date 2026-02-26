@@ -21,9 +21,14 @@ juce_add_console_app(SlicerCli
 
 juce_generate_juce_header(SlicerCli)
 
+target_include_directories(SlicerCli PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/cli")
+
 target_sources(SlicerCli
   PRIVATE
   cli/Main.cpp
+  cli/WavLoader.cpp
+  cli/WavWriter.cpp
+  cli/Renderer.cpp
 )
 
 target_compile_definitions(SlicerCli
@@ -36,6 +41,7 @@ target_link_libraries(SlicerCli
   PRIVATE
   slicer_dsp
   juce::juce_core
+  juce::juce_events
   juce::juce_audio_formats
   juce::juce_audio_basics
   PUBLIC
@@ -52,20 +58,28 @@ juce_add_plugin(SlicerPlugin
   PLUGIN_CODE Slc0
   FORMATS VST3 Standalone
   PRODUCT_NAME "Slicer"
-  IS_SYNTH FALSE
-  NEEDS_MIDI_INPUT FALSE
+  IS_SYNTH TRUE
+  NEEDS_MIDI_INPUT TRUE
   NEEDS_MIDI_OUTPUT FALSE
-  EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+  EDITOR_WANTS_KEYBOARD_FOCUS TRUE
 )
 
 juce_generate_juce_header(SlicerPlugin)
 
-target_include_directories(SlicerPlugin PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/plugin")
+target_include_directories(SlicerPlugin PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/plugin"
+  "${CMAKE_CURRENT_SOURCE_DIR}/cli"
+)
 
 target_sources(SlicerPlugin
   PRIVATE
   plugin/PluginProcessor.cpp
   plugin/PluginEditor.cpp
+  plugin/TopBarComponent.cpp
+  plugin/WaveformView.cpp
+  plugin/ControlPanel.cpp
+  plugin/MidiMappingOverlay.cpp
+  cli/WavLoader.cpp
 )
 
 target_compile_definitions(SlicerPlugin
@@ -79,6 +93,8 @@ target_link_libraries(SlicerPlugin
   PRIVATE
   slicer_dsp
   juce::juce_audio_utils
+  juce::juce_audio_formats
+  juce::juce_gui_basics
   PUBLIC
   juce::juce_recommended_config_flags
   juce::juce_recommended_lto_flags

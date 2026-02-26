@@ -62,7 +62,7 @@ cmake -B build
 cmake --build build
 ```
 
-- **CLI:** `build/SlicerCli_artefacts/Debug/Slicer CLI` (or `Release/`).
+- **CLI:** `build/src/SlicerCli_artefacts/SlicerCli` (with Make/Ninja; Xcode/VS use `Debug/` or `Release/` under that).
 - **Plugin:** `build/SlicerPlugin_artefacts/Debug/VST3/Slicer.vst3` (or `Release/`).
 
 Optional: use a generator explicitly:
@@ -75,7 +75,7 @@ cmake -G "Ninja" -B build
 ## Run
 
 - **CLI (stub):**  
-  `./build/SlicerCli_artefacts/Debug/Slicer\ CLI`  
+  `./build/src/SlicerCli_artefacts/SlicerCli input.wav output.wav --bpm 120`  
   (Full usage to be implemented: `SlicerCli input.wav output.wav --bpm 120`.)
 
 - **Plugin:** Load `Slicer.vst3` in FL Studio (or any VST3 host).

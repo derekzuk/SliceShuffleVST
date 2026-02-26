@@ -39,9 +39,12 @@ public:
 
   /**
    * Return a random permutation of indices [0, numSlices).
-   * Seeded for reproducibility when needed.
+   * \param seed 0 = use random_device (non-reproducible).
+   * \param noImmediateRepeats if true, ensure no two adjacent output slices are the same (avoids obvious repeats).
    */
-  static std::vector<size_t> shuffledSliceOrder(size_t numSlices, uint32_t seed = 0);
+  static std::vector<size_t> shuffledSliceOrder(size_t numSlices,
+                                                 uint32_t seed = 0,
+                                                 bool noImmediateRepeats = true);
 
 private:
   double bpm_{120.0};

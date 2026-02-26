@@ -1,0 +1,107 @@
+#include "TopBarComponent.h"
+
+TopBarComponent::TopBarComponent(SlicerPluginProcessor& proc) : processor_(proc)
+{
+  loadButton_.setButtonText("Load Sample");
+  addAndMakeVisible(loadButton_);
+  resetButton_.setButtonText("Reset");
+  addAndMakeVisible(resetButton_);
+  previewButton_.setButtonText("Preview");
+  addAndMakeVisible(previewButton_);
+  rearrangeButton_.setButtonText("Rearrange");
+  addAndMakeVisible(rearrangeButton_);
+  sampleLabel_.setText("No sample loaded", juce::dontSendNotification);
+  sampleLabel_.setJustificationType(juce::Justification::centredLeft);
+  addAndMakeVisible(sampleLabel_);
+  statusLabel_.setJustificationType(juce::Justification::centredRight);
+  addAndMakeVisible(statusLabel_);
+}
+
+void TopBarComponent::setOnLoadClicked(std::function<void()> cb)
+{
+  onLoadClicked_ = std::move(cb);
+  loadButton_.onClick = [this]() { if (onLoadClicked_) onLoadClicked_(); };
+}
+
+void TopBarComponent::setOnResetClicked(std::function<void()> cb)
+{
+  onResetClicked_ = std::move(cb);
+  resetButton_.onClick = [this]() { if (onResetClicked_) onResetClicked_(); };
+}
+
+void TopBarComponent::setOnPreviewClicked(std::function<void()> cb)
+{
+  onPreviewClicked_ = std::move(cb);
+  previewButton_.onClick = [this]() { if (onPreviewClicked_) onPreviewClicked_(); };
+}
+
+void TopBarComponent::setOnRearrangeClicked(std::function<void()> cb)
+{
+  onRearrangeClicked_ = std::move(cb);
+  rearrangeButton_.onClick = [this]() { if (onRearrangeClicked_) onRearrangeClicked_(); };
+}
+
+void TopBarComponent::paint(juce::Graphics& g)
+{
+  g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId).darker(0.1f));
+}
+
+void TopBarComponent::resized()
+{
+  auto r = getLocalBounds().reduced(4);
+  const int butW = 100;
+  loadButton_.setBounds(r.removeFromLeft(butW).reduced(2));
+  r.removeFromLeft(8);
+  resetButton_.setBounds(r.removeFromLeft(60).reduced(2));
+  r.removeFromLeft(8);
+  previewButton_.setBounds(r.removeFromLeft(70).reduced(2));
+  r.removeFromLeft(8);
+  rearrangeButton_.setBounds(r.removeFromLeft(85).reduced(2));
+  r.removeFromLeft(8);
+  statusLabel_.setBounds(r.removeFromRight(90).reduced(2));
+  sampleLabel_.setBounds(r.reduced(2));
+}
+
+void TopBarComponent::refresh()
+{
+  const auto status = processor_.getLoadStatus();
+  juce::String statusText;
+  juce::Colour statusColour;
+  switch (status)
+  {
+  case SlicerPluginProcessor::LoadStatus::Idle:
+    statusText = "—";
+    statusColour = juce::Colours::grey;
+    break;
+  case SlicerPluginProcessor::LoadStatus::Loading:
+    statusText = "Loading…";
+    statusColour = juce::Colours::orange;
+    break;
+  case SlicerPluginProcessor::LoadStatus::Ready:
+    statusText = "Ready";
+    statusColour = juce::Colours::green;
+    break;
+  case SlicerPluginProcessor::LoadStatus::Missing:
+    statusText = "Missing";
+    statusColour = juce::Colours::red;
+    break;
+  case SlicerPluginProcessor::LoadStatus::Error:
+    statusText = "Error";
+    statusColour = juce::Colours::red;
+    break;
+  }
+  statusLabel_.setText(statusText, juce::dontSendNotification);
+  statusLabel_.setColour(juce::Label::textColourId, statusColour);
+
+  juce::String name = processor_.getLoadedSampleDisplayName();
+  if (name.isEmpty())
+    name = "No sample loaded";
+  sampleLabel_.setText(name, juce::dontSendNotification);
+
+  if (status == SlicerPluginProcessor::LoadStatus::Error)
+  {
+    juce::String err = processor_.getLoadErrorText();
+    if (err.isNotEmpty())
+      sampleLabel_.setText(name + " — " + err, juce::dontSendNotification);
+  }
+}

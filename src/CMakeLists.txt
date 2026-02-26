@@ -80,6 +80,7 @@ target_sources(SlicerPlugin
   plugin/ControlPanel.cpp
   plugin/MidiMappingOverlay.cpp
   cli/WavLoader.cpp
+  cli/WavWriter.cpp
 )
 
 target_compile_definitions(SlicerPlugin

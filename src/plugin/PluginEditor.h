@@ -8,6 +8,7 @@
 #include "MidiMappingOverlay.h"
 
 class SlicerPluginEditor : public juce::AudioProcessorEditor,
+                           public juce::DragAndDropContainer,
                            private juce::Timer,
                            private juce::AudioProcessorValueTreeState::Listener
 {
@@ -17,6 +18,10 @@ public:
 
   void paint(juce::Graphics&) override;
   void resized() override;
+
+  bool shouldDropFilesWhenDraggedExternally(const juce::DragAndDropTarget::SourceDetails& sourceDetails,
+                                            juce::StringArray& files,
+                                            bool& canMoveFiles) override;
 
 private:
   void timerCallback() override;

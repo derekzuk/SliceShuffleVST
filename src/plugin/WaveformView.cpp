@@ -5,6 +5,7 @@ namespace {
 constexpr const char* kBpmId = "bpm";
 constexpr const char* kWindowBeatsId = "windowBeats";
 constexpr const char* kWindowPositionId = "windowPosition";
+constexpr const char* kSlicerExportDragType = "slicer-export";
 } // namespace
 
 WaveformView::WaveformView(SlicerPluginProcessor& proc) : processor_(proc)
@@ -121,6 +122,28 @@ void WaveformView::paint(juce::Graphics& g)
 }
 
 void WaveformView::resized() {}
+
+void WaveformView::mouseDown(const juce::MouseEvent& e)
+{
+  dragStartPos_ = e.getPosition();
+  dragStarted_ = false;
+}
+
+void WaveformView::mouseDrag(const juce::MouseEvent& e)
+{
+  if (dragStarted_)
+    return;
+  if (e.getDistanceFromDragStart() < kDragStartThresholdPx)
+    return;
+  auto state = processor_.getPreparedState();
+  if (!state || state->buffer.getNumSamples() == 0)
+    return;
+  auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this);
+  if (!container)
+    return;
+  dragStarted_ = true;
+  container->startDragging(juce::var(kSlicerExportDragType), this, juce::ScaledImage(), true);
+}
 
 void WaveformView::changeListenerCallback(juce::ChangeBroadcaster*)
 {

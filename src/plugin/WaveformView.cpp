@@ -1,4 +1,5 @@
 #include "WaveformView.h"
+#include <vector>
 
 namespace {
 constexpr const char* kBpmId = "bpm";
@@ -31,39 +32,45 @@ void WaveformView::paint(juce::Graphics& g)
   const float height = bounds.getHeight();
   const juce::int64 totalSamples = state->lengthInSamples;
 
-  // Draw waveform from thumbnail (if we have a file)
-  if (currentFile_.existsAsFile() && thumbnail_.getTotalLength() > 0.0)
+  // Always draw from buffer so the view updates after Rearrange; use min/max envelope for a normal waveform look
+  const int numChannels = state->buffer.getNumChannels();
+  const int numSamples = state->buffer.getNumSamples();
+  if (numSamples > 0)
   {
     g.setColour(juce::Colour(0xff404060));
-    thumbnail_.drawChannels(g, bounds.toNearestInt(), 0.0, thumbnail_.getTotalLength(), 1.0f);
-  }
-  else
-  {
-    // Fallback: draw from buffer
-    const int numChannels = state->buffer.getNumChannels();
-    const int numSamples = state->buffer.getNumSamples();
-    if (numSamples > 0)
+    const float scale = height * 0.45f;
+    const float midY = height * 0.5f;
+    const int w = static_cast<int>(width);
+    std::vector<float> maxPerCol(static_cast<size_t>(w), -1.0f);
+    std::vector<float> minPerCol(static_cast<size_t>(w), 1.0f);
+    for (int x = 0; x < w; ++x)
     {
-      g.setColour(juce::Colour(0xff404060));
+      const int lo = static_cast<int>((static_cast<float>(x) / width) * numSamples);
+      const int hi = juce::jmin(numSamples, static_cast<int>((static_cast<float>(x + 1) / width) * numSamples) + 1);
+      if (hi <= lo) continue;
+      float mx = -1.0f;
+      float mn = 1.0f;
       for (int ch = 0; ch < numChannels; ++ch)
       {
         const float* data = state->buffer.getReadPointer(ch);
-        juce::Path p;
-        const float scale = height * 0.45f;
-        const float midY = height * 0.5f;
-        p.startNewSubPath(0.0f, midY);
-        for (int x = 0; x < static_cast<int>(width); ++x)
+        for (int i = lo; i < hi; ++i)
         {
-          const int idx = std::min((x * numSamples) / static_cast<int>(width), numSamples - 1);
-          const float sample = data[idx];
-          const float y = midY - sample * scale;
-          p.lineTo(static_cast<float>(x), juce::jlimit(0.0f, height, y));
+          const float s = data[i];
+          if (s > mx) mx = s;
+          if (s < mn) mn = s;
         }
-        p.lineTo(width, midY);
-        p.closeSubPath();
-        g.fillPath(p);
       }
+      maxPerCol[static_cast<size_t>(x)] = mx;
+      minPerCol[static_cast<size_t>(x)] = mn;
     }
+    juce::Path p;
+    p.startNewSubPath(0.0f, midY);
+    for (int x = 0; x < w; ++x)
+      p.lineTo(static_cast<float>(x), juce::jlimit(0.0f, height, midY - maxPerCol[static_cast<size_t>(x)] * scale));
+    for (int x = w - 1; x >= 0; --x)
+      p.lineTo(static_cast<float>(x), juce::jlimit(0.0f, height, midY - minPerCol[static_cast<size_t>(x)] * scale));
+    p.closeSubPath();
+    g.fillPath(p);
   }
 
   // Slice grid overlay

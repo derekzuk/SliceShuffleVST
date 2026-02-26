@@ -282,20 +282,10 @@ void SlicerPluginProcessor::rearrangeSample()
   if (sampleRate <= 0 || bpm <= 0)
     return;
 
-  const double secondsPerBeat = 60.0 / bpm;
-  const double totalBeats = static_cast<double>(totalSamples) / (sampleRate * secondsPerBeat);
-  const int windowBeatsParam =
-      juce::jlimit(2, 64, static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
-  const double windowBeats = static_cast<double>(windowBeatsParam);
-  const float posNorm = apvts.getRawParameterValue(kWindowPositionId)->load();
-  const double startBeat =
-      totalBeats <= windowBeats ? 0.0 : posNorm * std::max(0.0, totalBeats - windowBeats);
-  const size_t startSample =
-      static_cast<size_t>(std::round(startBeat * secondsPerBeat * sampleRate));
-  const size_t endSample = std::min(
-      totalSamples,
-      static_cast<size_t>(std::round((startBeat + windowBeats) * secondsPerBeat * sampleRate)));
-  const size_t windowLengthSamples = (endSample > startSample) ? (endSample - startSample) : 0;
+  auto [startSample, endSample] = getWindowRangeSnappedToSlices();
+  const size_t startSampleS = static_cast<size_t>(juce::jmax(juce::int64(0), startSample));
+  const size_t endSampleS = static_cast<size_t>(juce::jmin(static_cast<juce::int64>(totalSamples), endSample));
+  const size_t windowLengthSamples = (endSampleS > startSampleS) ? (endSampleS - startSampleS) : 0;
   if (windowLengthSamples == 0)
     return;
 
@@ -324,8 +314,8 @@ void SlicerPluginProcessor::rearrangeSample()
   {
     const size_t srcIdx = order[i];
     const slicer::Slice& srcSl = windowSlices[srcIdx];
-    const size_t srcStartInFull = startSample + srcSl.startSample;
-    const size_t dstStartInFull = startSample + writePos;
+    const size_t srcStartInFull = startSampleS + srcSl.startSample;
+    const size_t dstStartInFull = startSampleS + writePos;
     for (int ch = 0; ch < numCh; ++ch)
     {
       newBuffer.copyFrom(ch, static_cast<int>(dstStartInFull), state->buffer,
@@ -356,6 +346,53 @@ void SlicerPluginProcessor::rearrangeSample()
   apvts.getParameterAsValue(kSeedId).setValue(static_cast<int>(seed));
 }
 
+std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnappedToSlices() const
+{
+  auto state = getPreparedState();
+  const juce::int64 totalSamples = state ? state->lengthInSamples : 0;
+  if (!state || totalSamples <= 0 || state->sampleRate <= 0)
+    return {0, 0};
+  const double bpm = static_cast<double>(apvts.getRawParameterValue(kBpmId)->load());
+  if (bpm <= 0)
+    return {0, totalSamples};
+  const double secondsPerBeat = 60.0 / bpm;
+  const double totalBeats = static_cast<double>(totalSamples) / (state->sampleRate * secondsPerBeat);
+  const int windowBeatsParam = juce::jlimit(
+      2, 64,
+      static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
+  const double windowBeats = static_cast<double>(windowBeatsParam);
+  const float posNorm = apvts.getRawParameterValue(kWindowPositionId)->load();
+  const double startBeat = totalBeats <= windowBeats ? 0.0 : static_cast<double>(posNorm) * std::max(0.0, totalBeats - windowBeats);
+  juce::int64 startIdeal = static_cast<juce::int64>(std::round(startBeat * secondsPerBeat * state->sampleRate));
+  juce::int64 endIdeal = juce::jmin(
+      totalSamples,
+      static_cast<juce::int64>(std::round((startBeat + windowBeats) * secondsPerBeat * state->sampleRate)));
+  startIdeal = juce::jlimit(juce::int64(0), totalSamples, startIdeal);
+  endIdeal = juce::jmax(endIdeal, startIdeal);
+
+  const std::vector<slicer::Slice>& slices = state->slices;
+  if (slices.empty())
+    return {startIdeal, endIdeal};
+
+  juce::int64 startSnap = 0;
+  for (const auto& s : slices)
+  {
+    const juce::int64 b = static_cast<juce::int64>(s.startSample);
+    if (b <= startIdeal)
+      startSnap = juce::jmax(startSnap, b);
+  }
+  juce::int64 endSnap = totalSamples;
+  for (const auto& s : slices)
+  {
+    const juce::int64 e = static_cast<juce::int64>(s.startSample) + static_cast<juce::int64>(s.lengthSamples);
+    if (e >= endIdeal)
+      endSnap = juce::jmin(endSnap, e);
+  }
+  if (endSnap <= startSnap)
+    endSnap = juce::jmin(totalSamples, startSnap + 1);
+  return {startSnap, endSnap};
+}
+
 void SlicerPluginProcessor::startPreview()
 {
   std::shared_ptr<const PreparedState> state;
@@ -373,27 +410,8 @@ void SlicerPluginProcessor::startPreview()
   }
   const juce::int64 totalSamples = state->lengthInSamples;
   const double sampleRate = state->sampleRate;
-  const double bpm = static_cast<double>(apvts.getRawParameterValue(kBpmId)->load());
-  if (bpm <= 0)
-  {
-    previewStartSample_.store(0);
-    previewLengthSamples_.store(std::min(totalSamples, static_cast<juce::int64>(kPreviewLengthSeconds * hostSampleRate_)));
-    previewActive_.store(true);
-    return;
-  }
-  const double secondsPerBeat = 60.0 / bpm;
-  const double totalBeats = static_cast<double>(totalSamples) / (sampleRate * secondsPerBeat);
-  const int windowBeatsParam = juce::jlimit(
-      2, 64,
-      static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
-  const double windowBeats = static_cast<double>(windowBeatsParam);
-  const float posNorm = apvts.getRawParameterValue(kWindowPositionId)->load();
-  const double startBeat = totalBeats <= windowBeats ? 0.0 : static_cast<double>(posNorm) * std::max(0.0, totalBeats - windowBeats);
-  const juce::int64 startSample = static_cast<juce::int64>(std::round(startBeat * secondsPerBeat * sampleRate));
-  const juce::int64 endSample = std::min(
-      totalSamples,
-      static_cast<juce::int64>(std::round((startBeat + windowBeats) * secondsPerBeat * sampleRate)));
-  const juce::int64 windowLengthSamples = std::max(juce::int64(0), endSample - startSample);
+  auto [startSample, endSample] = getWindowRangeSnappedToSlices();
+  const juce::int64 windowLengthSamples = juce::jmax(juce::int64(0), endSample - startSample);
   const double windowDurationSeconds = (windowLengthSamples > 0 && sampleRate > 0)
       ? (static_cast<double>(windowLengthSamples) / sampleRate) : 0.0;
 

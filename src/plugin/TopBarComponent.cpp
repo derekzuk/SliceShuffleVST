@@ -6,10 +6,6 @@ TopBarComponent::TopBarComponent(SlicerPluginProcessor& proc) : processor_(proc)
   addAndMakeVisible(loadButton_);
   resetButton_.setButtonText("Reset");
   addAndMakeVisible(resetButton_);
-  previewButton_.setButtonText("Preview");
-  addAndMakeVisible(previewButton_);
-  rearrangeButton_.setButtonText("Rearrange");
-  addAndMakeVisible(rearrangeButton_);
   sampleLabel_.setText("No sample loaded", juce::dontSendNotification);
   sampleLabel_.setJustificationType(juce::Justification::centredLeft);
   addAndMakeVisible(sampleLabel_);
@@ -29,18 +25,6 @@ void TopBarComponent::setOnResetClicked(std::function<void()> cb)
   resetButton_.onClick = [this]() { if (onResetClicked_) onResetClicked_(); };
 }
 
-void TopBarComponent::setOnPreviewClicked(std::function<void()> cb)
-{
-  onPreviewClicked_ = std::move(cb);
-  previewButton_.onClick = [this]() { if (onPreviewClicked_) onPreviewClicked_(); };
-}
-
-void TopBarComponent::setOnRearrangeClicked(std::function<void()> cb)
-{
-  onRearrangeClicked_ = std::move(cb);
-  rearrangeButton_.onClick = [this]() { if (onRearrangeClicked_) onRearrangeClicked_(); };
-}
-
 void TopBarComponent::paint(juce::Graphics& g)
 {
   g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId).darker(0.1f));
@@ -53,10 +37,6 @@ void TopBarComponent::resized()
   loadButton_.setBounds(r.removeFromLeft(butW).reduced(2));
   r.removeFromLeft(8);
   resetButton_.setBounds(r.removeFromLeft(60).reduced(2));
-  r.removeFromLeft(8);
-  previewButton_.setBounds(r.removeFromLeft(70).reduced(2));
-  r.removeFromLeft(8);
-  rearrangeButton_.setBounds(r.removeFromLeft(85).reduced(2));
   r.removeFromLeft(8);
   statusLabel_.setBounds(r.removeFromRight(90).reduced(2));
   sampleLabel_.setBounds(r.reduced(2));

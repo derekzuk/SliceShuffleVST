@@ -5,7 +5,6 @@
 #include "TopBarComponent.h"
 #include "WaveformView.h"
 #include "ControlPanel.h"
-#include "MidiMappingOverlay.h"
 
 class SlicerPluginEditor : public juce::AudioProcessorEditor,
                            public juce::DragAndDropContainer,
@@ -23,6 +22,9 @@ public:
                                             juce::StringArray& files,
                                             bool& canMoveFiles) override;
 
+  /** Write current window region to a WAV file. Returns true on success. */
+  bool writeWindowToWavFile(const juce::File& file) const;
+
 private:
   void timerCallback() override;
   void parameterChanged(const juce::String& id, float) override;
@@ -34,7 +36,9 @@ private:
   WaveformView waveformView_;
   juce::Viewport controlPanelViewport_;
   ControlPanel controlPanel_;
-  MidiMappingOverlay midiMappingOverlay_;
+  juce::TextButton rearrangeButton_;
+  juce::TextButton previewButton_;
+  juce::TextButton exportButton_;
   juce::File lastLoadedPath_;
   juce::int64 regenerateScheduledAt_{0};
 };

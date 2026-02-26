@@ -78,7 +78,6 @@ target_sources(SlicerPlugin
   plugin/TopBarComponent.cpp
   plugin/WaveformView.cpp
   plugin/ControlPanel.cpp
-  plugin/MidiMappingOverlay.cpp
   cli/WavLoader.cpp
   cli/WavWriter.cpp
 )

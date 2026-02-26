@@ -66,6 +66,9 @@ public:
   /** Play the loaded sample from the start for 5 seconds (from UI). */
   void startPreview();
 
+  /** Window range (startSample, endSample) snapped to slice boundaries (and file start/end). */
+  std::pair<juce::int64, juce::int64> getWindowRangeSnappedToSlices() const;
+
   /** Last triggered slice index (for UI readout); written from audio thread, read from UI. */
   std::atomic<int> lastTriggeredSliceIndex{-1};
 

@@ -2,9 +2,6 @@
 #include <vector>
 
 namespace {
-constexpr const char* kBpmId = "bpm";
-constexpr const char* kWindowBeatsId = "windowBeats";
-constexpr const char* kWindowPositionId = "windowPosition";
 constexpr const char* kSlicerExportDragType = "slicer-export";
 } // namespace
 
@@ -91,33 +88,18 @@ void WaveformView::paint(juce::Graphics& g)
     g.drawVerticalLine(static_cast<int>(x), 0.0f, height);
   }
 
-  // Window overlay: show which region will be rearranged
-  const double bpm = static_cast<double>(processor_.getValueTreeState().getRawParameterValue(kBpmId)->load());
-  if (bpm > 0.0 && state->sampleRate > 0.0)
+  // Window overlay: show which region will be rearranged (snapped to slice boundaries)
+  auto [startSample, endSample] = processor_.getWindowRangeSnappedToSlices();
+  if (endSample > startSample && totalSamples > 0)
   {
-    const double secondsPerBeat = 60.0 / bpm;
-    const double totalBeats = static_cast<double>(totalSamples) / (state->sampleRate * secondsPerBeat);
-    const int windowBeatsParam = juce::jlimit(
-        2, 64,
-        static_cast<int>(std::round(processor_.getValueTreeState().getRawParameterValue(kWindowBeatsId)->load())));
-    const double windowBeats = static_cast<double>(windowBeatsParam);
-    const float posNorm = processor_.getValueTreeState().getRawParameterValue(kWindowPositionId)->load();
-    const double startBeat = totalBeats <= windowBeats ? 0.0 : static_cast<double>(posNorm) * std::max(0.0, totalBeats - windowBeats);
-    const size_t startSample = static_cast<size_t>(std::round(startBeat * secondsPerBeat * state->sampleRate));
-    const size_t endSample = std::min(
-        static_cast<size_t>(totalSamples),
-        static_cast<size_t>(std::round((startBeat + windowBeats) * secondsPerBeat * state->sampleRate)));
-    if (endSample > startSample)
-    {
-      const float startX = (static_cast<float>(startSample) / static_cast<float>(totalSamples)) * width;
-      const float endX = (static_cast<float>(endSample) / static_cast<float>(totalSamples)) * width;
-      const float w = std::max(2.0f, endX - startX);
-      g.setColour(juce::Colour(0x2800aaff));
-      g.fillRect(startX, 0.0f, w, height);
-      g.setColour(juce::Colour(0xc00080ff));
-      g.drawVerticalLine(static_cast<int>(startX), 0.0f, height);
-      g.drawVerticalLine(static_cast<int>(endX), 0.0f, height);
-    }
+    const float startX = (static_cast<float>(startSample) / static_cast<float>(totalSamples)) * width;
+    const float endX = (static_cast<float>(endSample) / static_cast<float>(totalSamples)) * width;
+    const float w = std::max(2.0f, endX - startX);
+    g.setColour(juce::Colour(0x2800aaff));
+    g.fillRect(startX, 0.0f, w, height);
+    g.setColour(juce::Colour(0xc00080ff));
+    g.drawVerticalLine(static_cast<int>(startX), 0.0f, height);
+    g.drawVerticalLine(static_cast<int>(endX), 0.0f, height);
   }
 }
 

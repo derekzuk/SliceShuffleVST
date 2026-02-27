@@ -27,7 +27,7 @@ ControlPanel::ControlPanel(SlicerPluginProcessor& proc) : processor_(proc)
   granularityCombo_.setSelectedId(2);
   addAndMakeVisible(granularityCombo_);
 
-  windowLabel_.setText("Window (beats)", juce::dontSendNotification);
+  windowLabel_.setText("Window (slices)", juce::dontSendNotification);
   addAndMakeVisible(windowLabel_);
   windowSlider_.setSliderStyle(juce::Slider::LinearHorizontal);
   windowSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 40, 22);

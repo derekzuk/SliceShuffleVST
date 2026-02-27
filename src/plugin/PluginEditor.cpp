@@ -18,7 +18,11 @@ SlicerPluginEditor::SlicerPluginEditor(SlicerPluginProcessor& p)
   rearrangeButton_.onClick = [this]() { processorRef.rearrangeSample(); };
   previewButton_.setButtonText("Preview");
   addAndMakeVisible(previewButton_);
-  previewButton_.onClick = [this]() { processorRef.startPreview(); };
+  previewButton_.onClick = [this]()
+  {
+    processorRef.startPreview();
+    waveformView_.grabKeyboardFocus();
+  };
   exportButton_.setButtonText("Export");
   addAndMakeVisible(exportButton_);
   exportButton_.onClick = [this]()

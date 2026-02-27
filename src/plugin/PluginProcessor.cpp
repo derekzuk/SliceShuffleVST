@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "../cli/WavLoader.h"
 #include "../dsp/SlicerEngine.h"
+#include <algorithm>
 #include <cmath>
 #include <numeric>
 
@@ -27,8 +28,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
       juce::StringArray{"1/2", "1", "2", "4", "8", "16"}, 1)); // 1 = 1 beat
   layout.add(std::make_unique<juce::AudioParameterInt>(
       juce::ParameterID{kSeedId, 1}, "Seed", 0, 999999, 0));
+  // Window = number of slices (min 4); we use even count only (4, 6, 8, …)
   layout.add(std::make_unique<juce::AudioParameterInt>(
-      juce::ParameterID{kWindowBeatsId, 1}, "Window", 2, 64, 16));
+      juce::ParameterID{kWindowBeatsId, 1}, "Window", 4, 64, 16));
   layout.add(std::make_unique<juce::AudioParameterFloat>(
       juce::ParameterID{kWindowPositionId, 1}, "Window position",
       juce::NormalisableRange<float>(0.f, 1.f, 0.01f, 1.f), 0.f));
@@ -399,7 +401,8 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
       for (size_t i = 0; i < segLen - 1 && sameLength; ++i)
         if (slices[runStart + i].lengthSamples != slices[runStart + i + 1].lengthSamples)
           sameLength = false;
-      if (!sameLength)
+
+      if (!sameLength && segLen != 2)
         continue;
 
       std::vector<size_t> oldOrderSeg(segLen);
@@ -408,15 +411,19 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
       for (size_t i = 0; i < segLen; ++i)
         order[runStart + (i + 1) % segLen] = oldOrderSeg[i];
 
+      const size_t copyLen = (sameLength || segLen != 2)
+                                 ? static_cast<size_t>(-1)
+                                 : std::min(slices[runStart].lengthSamples, slices[runEnd].lengthSamples);
       for (size_t i = 0; i < segLen; ++i)
       {
         const size_t srcIdx = runStart + i;
         const size_t dstIdx = runStart + (i + 1) % segLen;
         const slicer::Slice& srcSl = slices[srcIdx];
         const slicer::Slice& dstSl = slices[dstIdx];
+        const size_t len = (copyLen == static_cast<size_t>(-1)) ? srcSl.lengthSamples : copyLen;
         for (int ch = 0; ch < numCh; ++ch)
           newBuffer.copyFrom(ch, static_cast<int>(dstSl.startSample), state->buffer,
-                             ch, static_cast<int>(srcSl.startSample), static_cast<int>(srcSl.lengthSamples));
+                             ch, static_cast<int>(srcSl.startSample), static_cast<int>(len));
       }
     }
     else
@@ -429,7 +436,8 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
       for (size_t i = 0; i < segLen - 1 && sameLength; ++i)
         if (slices[segStart + i].lengthSamples != slices[segStart + i + 1].lengthSamples)
           sameLength = false;
-      if (!sameLength)
+
+      if (!sameLength && segLen != 2)
         continue;
 
       std::vector<size_t> oldOrderSeg(segLen);
@@ -438,15 +446,19 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
       for (size_t i = 0; i < segLen; ++i)
         order[segStart + (i + segLen - 1) % segLen] = oldOrderSeg[i];
 
+      const size_t copyLen = (sameLength || segLen != 2)
+                                 ? static_cast<size_t>(-1)
+                                 : std::min(slices[segStart].lengthSamples, slices[runEnd].lengthSamples);
       for (size_t i = 0; i < segLen; ++i)
       {
         const size_t srcIdx = segStart + i;
         const size_t dstIdx = segStart + (i + segLen - 1) % segLen;
         const slicer::Slice& srcSl = slices[srcIdx];
         const slicer::Slice& dstSl = slices[dstIdx];
+        const size_t len = (copyLen == static_cast<size_t>(-1)) ? srcSl.lengthSamples : copyLen;
         for (int ch = 0; ch < numCh; ++ch)
           newBuffer.copyFrom(ch, static_cast<int>(dstSl.startSample), state->buffer,
-                             ch, static_cast<int>(srcSl.startSample), static_cast<int>(srcSl.lengthSamples));
+                             ch, static_cast<int>(srcSl.startSample), static_cast<int>(len));
       }
     }
   }
@@ -466,47 +478,32 @@ std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnapped
 {
   auto state = getPreparedState();
   const juce::int64 totalSamples = state ? state->lengthInSamples : 0;
-  if (!state || totalSamples <= 0 || state->sampleRate <= 0)
+  if (!state || totalSamples <= 0)
     return {0, 0};
-  const double bpm = static_cast<double>(apvts.getRawParameterValue(kBpmId)->load());
-  if (bpm <= 0)
-    return {0, totalSamples};
-  const double secondsPerBeat = 60.0 / bpm;
-  const double totalBeats = static_cast<double>(totalSamples) / (state->sampleRate * secondsPerBeat);
-  const int windowBeatsParam = juce::jlimit(
-      2, 64,
-      static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
-  const double windowBeats = static_cast<double>(windowBeatsParam);
-  const float posNorm = apvts.getRawParameterValue(kWindowPositionId)->load();
-  const double startBeat = totalBeats <= windowBeats ? 0.0 : static_cast<double>(posNorm) * std::max(0.0, totalBeats - windowBeats);
-  juce::int64 startIdeal = static_cast<juce::int64>(std::round(startBeat * secondsPerBeat * state->sampleRate));
-  juce::int64 endIdeal = juce::jmin(
-      totalSamples,
-      static_cast<juce::int64>(std::round((startBeat + windowBeats) * secondsPerBeat * state->sampleRate)));
-  startIdeal = juce::jlimit(juce::int64(0), totalSamples, startIdeal);
-  endIdeal = juce::jmax(endIdeal, startIdeal);
 
   const std::vector<slicer::Slice>& slices = state->slices;
   if (slices.empty())
-    return {startIdeal, endIdeal};
+    return {0, totalSamples};
 
-  juce::int64 startSnap = 0;
-  for (const auto& s : slices)
-  {
-    const juce::int64 b = static_cast<juce::int64>(s.startSample);
-    if (b <= startIdeal)
-      startSnap = juce::jmax(startSnap, b);
-  }
-  juce::int64 endSnap = totalSamples;
-  for (const auto& s : slices)
-  {
-    const juce::int64 e = static_cast<juce::int64>(s.startSample) + static_cast<juce::int64>(s.lengthSamples);
-    if (e >= endIdeal)
-      endSnap = juce::jmin(endSnap, e);
-  }
-  if (endSnap <= startSnap)
-    endSnap = juce::jmin(totalSamples, startSnap + 1);
-  return {startSnap, endSnap};
+  const int windowParam = juce::jlimit(
+      4, 64,
+      static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
+  const size_t windowSlices = static_cast<size_t>(juce::jlimit(4, 64, (windowParam + 1) & ~1)); // even: 4, 6, 8, ...
+  const size_t numSlices = slices.size();
+  if (windowSlices >= numSlices)
+    return {0, totalSamples};
+
+  const float posNorm = apvts.getRawParameterValue(kWindowPositionId)->load();
+  const size_t maxStart = numSlices - windowSlices;
+  const size_t startIdx = std::min(maxStart,
+                                  static_cast<size_t>(std::round(static_cast<double>(posNorm) * static_cast<double>(maxStart))));
+
+  const slicer::Slice& first = slices[startIdx];
+  const slicer::Slice& last = slices[startIdx + windowSlices - 1];
+  const juce::int64 startSnap = static_cast<juce::int64>(first.startSample);
+  const juce::int64 endSnap = static_cast<juce::int64>(last.startSample) + static_cast<juce::int64>(last.lengthSamples);
+
+  return {startSnap, juce::jmin(endSnap, totalSamples)};
 }
 
 void SlicerPluginProcessor::startPreview()

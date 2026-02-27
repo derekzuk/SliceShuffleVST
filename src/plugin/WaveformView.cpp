@@ -178,7 +178,7 @@ bool WaveformView::keyPressed(const juce::KeyPress& key)
     return false;
   processor_.moveSelectedSlicesInOrder(selectedSliceIndices_, direction);
 
-  // Highlight follows the slice: e.g. was at 5, moved left -> now at 4, so highlight position 4
+  // Highlight follows the slice; at left/right boundary keep selection (same as other side)
   std::unordered_set<size_t> newSel;
   const size_t numSlices = static_cast<size_t>(processor_.getNumSlices());
   for (size_t p : selectedSliceIndices_)
@@ -186,6 +186,8 @@ bool WaveformView::keyPressed(const juce::KeyPress& key)
     const size_t nxt = (direction > 0) ? p + 1 : (p > 0 ? p - 1 : p);
     if (nxt < numSlices)
       newSel.insert(nxt);
+    else
+      newSel.insert(p); // at right edge (move right) or left edge (move left), keep selection
   }
   selectedSliceIndices_ = std::move(newSel);
 

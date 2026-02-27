@@ -522,23 +522,32 @@ void SlicerPluginProcessor::startPreview()
     return;
   }
   const juce::int64 totalSamples = state->lengthInSamples;
-  const double sampleRate = state->sampleRate;
   auto [startSample, endSample] = getWindowRangeSnappedToSlices();
   const juce::int64 windowLengthSamples = juce::jmax(juce::int64(0), endSample - startSample);
-  const double windowDurationSeconds = (windowLengthSamples > 0 && sampleRate > 0)
-      ? (static_cast<double>(windowLengthSamples) / sampleRate) : 0.0;
+  const juce::int64 maxPreviewSamples = static_cast<juce::int64>(kPreviewLengthSeconds * hostSampleRate_);
 
-  if (windowDurationSeconds > 0.0 && windowDurationSeconds < kPreviewLengthSeconds)
+  // Always preview what's in the window; cap length to kPreviewLengthSeconds
+  if (windowLengthSamples > 0)
   {
     previewStartSample_.store(startSample);
-    previewLengthSamples_.store(windowLengthSamples);
+    previewLengthSamples_.store(juce::jmin(windowLengthSamples, maxPreviewSamples));
   }
   else
   {
     previewStartSample_.store(0);
-    previewLengthSamples_.store(std::min(totalSamples, static_cast<juce::int64>(kPreviewLengthSeconds * hostSampleRate_)));
+    previewLengthSamples_.store(juce::jmin(totalSamples, maxPreviewSamples));
   }
   previewActive_.store(true);
+}
+
+void SlicerPluginProcessor::stopPreview()
+{
+  previewActive_.store(false);
+}
+
+bool SlicerPluginProcessor::isPreviewActive() const
+{
+  return previewActive_.load();
 }
 
 void SlicerPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)

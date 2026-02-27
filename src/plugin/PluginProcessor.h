@@ -72,6 +72,10 @@ public:
 
   /** Play the loaded sample from the start for 5 seconds (from UI). */
   void startPreview();
+  /** Stop preview playback (from UI). */
+  void stopPreview();
+  /** True while preview is playing. */
+  bool isPreviewActive() const;
 
   /** Window range (startSample, endSample) snapped to slice boundaries (and file start/end). */
   std::pair<juce::int64, juce::int64> getWindowRangeSnappedToSlices() const;

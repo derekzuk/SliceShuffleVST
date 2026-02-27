@@ -27,31 +27,17 @@ ControlPanel::ControlPanel(SlicerPluginProcessor& proc) : processor_(proc)
   granularityCombo_.setSelectedId(2);
   addAndMakeVisible(granularityCombo_);
 
-  windowLabel_.setText("Window (slices)", juce::dontSendNotification);
+  windowLabel_.setText("Window Size", juce::dontSendNotification);
   addAndMakeVisible(windowLabel_);
   windowSlider_.setSliderStyle(juce::Slider::LinearHorizontal);
   windowSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 40, 22);
   addAndMakeVisible(windowSlider_);
 
-  windowPositionLabel_.setText("Window position", juce::dontSendNotification);
+  windowPositionLabel_.setText("Window Position", juce::dontSendNotification);
   addAndMakeVisible(windowPositionLabel_);
   windowPositionSlider_.setSliderStyle(juce::Slider::LinearHorizontal);
   windowPositionSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 22);
   addAndMakeVisible(windowPositionSlider_);
-
-  reseedButton_.setButtonText("Reseed");
-  addAndMakeVisible(reseedButton_);
-  reseedButton_.onClick = [this]()
-  {
-    auto& apvts = processor_.getValueTreeState();
-    juce::RangedAudioParameter* p = apvts.getParameter(kSeedId);
-    if (p)
-    {
-      const int newSeed = juce::Random::getSystemRandom().nextInt(1000000);
-      apvts.getParameterAsValue(kSeedId).setValue(newSeed);
-      processor_.regenerateSliceMap();
-    }
-  };
 
   auto& apvts = processor_.getValueTreeState();
   bpmAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -85,16 +71,13 @@ void ControlPanel::resized()
   granularityCombo_.setBounds(row().reduced(2));
   r.removeFromTop(4);
 
-  leftLabel(windowLabel_);
+  leftLabel(windowLabel_, 88);   // "Window Size"
   windowSlider_.setBounds(row().reduced(2));
   r.removeFromTop(4);
 
-  leftLabel(windowPositionLabel_);
+  leftLabel(windowPositionLabel_, 105);   // "Window Position"
   windowPositionSlider_.setBounds(row().reduced(2));
   r.removeFromTop(4);
-
-  row();
-  reseedButton_.setBounds(row().removeFromRight(80).reduced(2));
 }
 
 void ControlPanel::refreshReseedFromProcessor() {}

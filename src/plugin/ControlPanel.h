@@ -18,7 +18,6 @@ private:
   juce::ComboBox granularityCombo_;
   juce::Slider windowSlider_;
   juce::Slider windowPositionSlider_;
-  juce::TextButton reseedButton_;
   juce::Label bpmLabel_;
   juce::Label granularityLabel_;
   juce::Label windowLabel_;

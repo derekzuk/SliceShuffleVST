@@ -30,11 +30,15 @@ void WaveformView::paint(juce::Graphics& g)
   const float width = bounds.getWidth();
   const float height = bounds.getHeight();
   const juce::int64 totalSamples = state->lengthInSamples;
+  auto [windowStartSample, windowEndSample] = processor_.getWindowRangeSnappedToSlices();
+  const juce::int64 rangeStart = juce::jlimit(juce::int64(0), totalSamples, windowStartSample);
+  const juce::int64 rangeEnd = juce::jmin(totalSamples, windowEndSample);
+  const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
 
-  // Always draw from buffer so the view updates after Rearrange; use min/max envelope for a normal waveform look
+  // Bottom view shows only the window range (zoomed to fill width)
   const int numChannels = state->buffer.getNumChannels();
   const int numSamples = state->buffer.getNumSamples();
-  if (numSamples > 0)
+  if (numSamples > 0 && rangeLength > 0)
   {
     g.setColour(juce::Colour(0xff404060));
     const float scale = height * 0.45f;
@@ -42,10 +46,13 @@ void WaveformView::paint(juce::Graphics& g)
     const int w = static_cast<int>(width);
     std::vector<float> maxPerCol(static_cast<size_t>(w), -1.0f);
     std::vector<float> minPerCol(static_cast<size_t>(w), 1.0f);
+    const float rangeLenF = static_cast<float>(rangeLength);
     for (int x = 0; x < w; ++x)
     {
-      const int lo = static_cast<int>((static_cast<float>(x) / width) * numSamples);
-      const int hi = juce::jmin(numSamples, static_cast<int>((static_cast<float>(x + 1) / width) * numSamples) + 1);
+      const juce::int64 sampleLo = rangeStart + static_cast<juce::int64>((static_cast<float>(x) / width) * rangeLenF);
+      const juce::int64 sampleHi = rangeStart + static_cast<juce::int64>((static_cast<float>(x + 1) / width) * rangeLenF) + 1;
+      const int lo = static_cast<int>(juce::jlimit(juce::int64(0), static_cast<juce::int64>(numSamples), sampleLo));
+      const int hi = static_cast<int>(juce::jlimit(juce::int64(0), static_cast<juce::int64>(numSamples), sampleHi));
       if (hi <= lo) continue;
       float mx = -1.0f;
       float mn = 1.0f;
@@ -72,51 +79,49 @@ void WaveformView::paint(juce::Graphics& g)
     g.fillPath(p);
   }
 
-  // Selected slices: reddish highlight (drawn under grid so grid stays visible)
-  if (!state->slices.empty() && totalSamples > 0)
+  // Selected slices: reddish highlight (positions relative to window range)
+  if (!state->slices.empty() && rangeLength > 0)
   {
     g.setColour(juce::Colour(0x44cc3333)); // semi-transparent red
     for (size_t idx : selectedSliceIndices_)
     {
       if (idx >= state->slices.size()) continue;
       const auto& slice = state->slices[idx];
-      const float x0 = (static_cast<float>(slice.startSample) / static_cast<float>(totalSamples)) * width;
-      const float x1 = (static_cast<float>(slice.startSample + slice.lengthSamples) /
-                        static_cast<float>(totalSamples)) *
-                       width;
+      const juce::int64 sliceStart = static_cast<juce::int64>(slice.startSample);
+      const juce::int64 sliceEnd = sliceStart + static_cast<juce::int64>(slice.lengthSamples);
+      if (sliceEnd <= rangeStart || sliceStart >= rangeEnd) continue;
+      const float x0 = (static_cast<float>(juce::jmax(sliceStart, rangeStart) - rangeStart) / static_cast<float>(rangeLength)) * width;
+      const float x1 = (static_cast<float>(juce::jmin(sliceEnd, rangeEnd) - rangeStart) / static_cast<float>(rangeLength)) * width;
       g.fillRect(x0, 0.0f, std::max(1.0f, x1 - x0), height);
     }
   }
 
-  // Slice grid overlay
+  // Slice grid overlay (only slices inside window)
   g.setColour(juce::Colour(0x88ffffff));
   for (const auto& slice : state->slices)
   {
-    const float x = (static_cast<float>(slice.startSample) / static_cast<float>(totalSamples)) * width;
+    const juce::int64 sliceStart = static_cast<juce::int64>(slice.startSample);
+    if (sliceStart < rangeStart || sliceStart >= rangeEnd) continue;
+    const float x = (static_cast<float>(sliceStart - rangeStart) / static_cast<float>(rangeLength)) * width;
     g.drawVerticalLine(static_cast<int>(x), 0.0f, height);
   }
-  // Right edge of last slice
   if (!state->slices.empty())
   {
     const auto& last = state->slices.back();
-    const float x = (static_cast<float>(last.startSample + last.lengthSamples) /
-                    static_cast<float>(totalSamples)) *
-                   width;
-    g.drawVerticalLine(static_cast<int>(x), 0.0f, height);
+    const juce::int64 edge = static_cast<juce::int64>(last.startSample + last.lengthSamples);
+    if (edge > rangeStart && edge <= rangeEnd)
+    {
+      const float x = (static_cast<float>(edge - rangeStart) / static_cast<float>(rangeLength)) * width;
+      g.drawVerticalLine(static_cast<int>(x), 0.0f, height);
+    }
   }
 
-  // Window overlay: show which region will be rearranged (snapped to slice boundaries)
-  auto [startSample, endSample] = processor_.getWindowRangeSnappedToSlices();
-  if (endSample > startSample && totalSamples > 0)
+  // Window edges (this view shows the window; subtle left/right border)
+  if (windowEndSample > windowStartSample && totalSamples > 0)
   {
-    const float startX = (static_cast<float>(startSample) / static_cast<float>(totalSamples)) * width;
-    const float endX = (static_cast<float>(endSample) / static_cast<float>(totalSamples)) * width;
-    const float w = std::max(2.0f, endX - startX);
-    g.setColour(juce::Colour(0x2800aaff));
-    g.fillRect(startX, 0.0f, w, height);
-    g.setColour(juce::Colour(0xc00080ff));
-    g.drawVerticalLine(static_cast<int>(startX), 0.0f, height);
-    g.drawVerticalLine(static_cast<int>(endX), 0.0f, height);
+    g.setColour(juce::Colour(0x400080ff));
+    g.drawVerticalLine(0, 0.0f, height);
+    g.drawVerticalLine(static_cast<int>(width), 0.0f, height);
   }
 }
 
@@ -129,8 +134,10 @@ int WaveformView::sliceIndexAt(float x) const
     return -1;
   const float width = static_cast<float>(getWidth());
   if (width <= 0.0f) return -1;
-  const juce::int64 totalSamples = state->lengthInSamples;
-  const juce::int64 sample = static_cast<juce::int64>((x / width) * static_cast<float>(totalSamples));
+  auto [rangeStart, rangeEnd] = processor_.getWindowRangeSnappedToSlices();
+  const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
+  if (rangeLength <= 0) return -1;
+  const juce::int64 sample = rangeStart + static_cast<juce::int64>((x / width) * static_cast<float>(rangeLength));
   for (size_t i = 0; i < state->slices.size(); ++i)
   {
     const auto& sl = state->slices[i];

@@ -6,9 +6,10 @@ const juce::Identifier kSlicerExportDragType("slicer-export");
 } // namespace
 
 SlicerPluginEditor::SlicerPluginEditor(SlicerPluginProcessor& p)
-  : AudioProcessorEditor(&p), processorRef(p), topBar_(p), waveformView_(p), controlPanel_(p)
+  : AudioProcessorEditor(&p), processorRef(p), topBar_(p), waveformOverview_(p), waveformView_(p), controlPanel_(p)
 {
   addAndMakeVisible(topBar_);
+  addAndMakeVisible(waveformOverview_);
   addAndMakeVisible(waveformView_);
   controlPanelViewport_.setViewedComponent(&controlPanel_, false);
   controlPanelViewport_.setScrollBarsShown(false, false);
@@ -20,8 +21,13 @@ SlicerPluginEditor::SlicerPluginEditor(SlicerPluginProcessor& p)
   addAndMakeVisible(previewButton_);
   previewButton_.onClick = [this]()
   {
-    processorRef.startPreview();
-    waveformView_.grabKeyboardFocus();
+    if (processorRef.isPreviewActive())
+      processorRef.stopPreview();
+    else
+    {
+      processorRef.startPreview();
+      waveformView_.grabKeyboardFocus();
+    }
   };
   exportButton_.setButtonText("Export");
   addAndMakeVisible(exportButton_);
@@ -95,6 +101,9 @@ void SlicerPluginEditor::resized()
 
   topBar_.setBounds(r.removeFromTop(topH));
   r.removeFromTop(4);
+  const int overviewHeight = 28;
+  waveformOverview_.setBounds(r.removeFromTop(overviewHeight));
+  r.removeFromTop(2);
   auto bottomBar = r.removeFromBottom(bottomH);
   r.removeFromBottom(4);
   auto rightArea = r.removeFromRight(panelW);
@@ -113,7 +122,9 @@ void SlicerPluginEditor::resized()
 void SlicerPluginEditor::timerCallback()
 {
   topBar_.refresh();
+  waveformOverview_.repaint();
   waveformView_.refresh();
+  previewButton_.setButtonText(processorRef.isPreviewActive() ? "Stop" : "Preview");
 
   if (regenerateScheduledAt_ > 0 && juce::Time::getMillisecondCounter() >= regenerateScheduledAt_)
   {

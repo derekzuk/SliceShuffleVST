@@ -4,6 +4,7 @@
 #include "PluginProcessor.h"
 #include "TopBarComponent.h"
 #include "WaveformView.h"
+#include "WaveformOverview.h"
 #include "ControlPanel.h"
 
 class SlicerPluginEditor : public juce::AudioProcessorEditor,
@@ -33,6 +34,7 @@ private:
 
   SlicerPluginProcessor& processorRef;
   TopBarComponent topBar_;
+  WaveformOverview waveformOverview_;
   WaveformView waveformView_;
   juce::Viewport controlPanelViewport_;
   ControlPanel controlPanel_;

@@ -76,6 +76,7 @@ target_sources(SlicerPlugin
   plugin/PluginProcessor.cpp
   plugin/PluginEditor.cpp
   plugin/TopBarComponent.cpp
+  plugin/WaveformOverview.cpp
   plugin/WaveformView.cpp
   plugin/ControlPanel.cpp
   cli/WavLoader.cpp

@@ -6,6 +6,8 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <unordered_set>
+#include <vector>
 
 class SlicerPluginProcessor : public juce::AudioProcessor
 {
@@ -62,6 +64,11 @@ public:
 
   /** Rearrange the sample: shuffle slice order and write it into the buffer (waveform updates). */
   void rearrangeSample();
+
+  /** Move selected slices in playback order and update waveform. direction: -1 = left, +1 = right.
+   *  selectedPositions = visual slice indices (positions) the user selected. Returns new order if changed. */
+  std::vector<size_t> moveSelectedSlicesInOrder(const std::unordered_set<size_t>& selectedPositions,
+                                                int direction);
 
   /** Play the loaded sample from the start for 5 seconds (from UI). */
   void startPreview();

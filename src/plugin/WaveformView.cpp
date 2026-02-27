@@ -10,6 +10,7 @@ WaveformView::WaveformView(SlicerPluginProcessor& proc) : processor_(proc)
   formatManager_.registerBasicFormats();
   thumbnail_.addChangeListener(this);
   setOpaque(true);
+  setWantsKeyboardFocus(true);
 }
 
 void WaveformView::paint(juce::Graphics& g)
@@ -71,6 +72,22 @@ void WaveformView::paint(juce::Graphics& g)
     g.fillPath(p);
   }
 
+  // Selected slices: reddish highlight (drawn under grid so grid stays visible)
+  if (!state->slices.empty() && totalSamples > 0)
+  {
+    g.setColour(juce::Colour(0x44cc3333)); // semi-transparent red
+    for (size_t idx : selectedSliceIndices_)
+    {
+      if (idx >= state->slices.size()) continue;
+      const auto& slice = state->slices[idx];
+      const float x0 = (static_cast<float>(slice.startSample) / static_cast<float>(totalSamples)) * width;
+      const float x1 = (static_cast<float>(slice.startSample + slice.lengthSamples) /
+                        static_cast<float>(totalSamples)) *
+                       width;
+      g.fillRect(x0, 0.0f, std::max(1.0f, x1 - x0), height);
+    }
+  }
+
   // Slice grid overlay
   g.setColour(juce::Colour(0x88ffffff));
   for (const auto& slice : state->slices)
@@ -105,10 +122,75 @@ void WaveformView::paint(juce::Graphics& g)
 
 void WaveformView::resized() {}
 
+int WaveformView::sliceIndexAt(float x) const
+{
+  auto state = processor_.getPreparedState();
+  if (!state || state->slices.empty() || state->lengthInSamples <= 0)
+    return -1;
+  const float width = static_cast<float>(getWidth());
+  if (width <= 0.0f) return -1;
+  const juce::int64 totalSamples = state->lengthInSamples;
+  const juce::int64 sample = static_cast<juce::int64>((x / width) * static_cast<float>(totalSamples));
+  for (size_t i = 0; i < state->slices.size(); ++i)
+  {
+    const auto& sl = state->slices[i];
+    const juce::int64 sliceStart = static_cast<juce::int64>(sl.startSample);
+    const juce::int64 sliceEnd = sliceStart + static_cast<juce::int64>(sl.lengthSamples);
+    if (sample >= sliceStart && sample < sliceEnd)
+      return static_cast<int>(i);
+  }
+  return -1;
+}
+
 void WaveformView::mouseDown(const juce::MouseEvent& e)
 {
   dragStartPos_ = e.getPosition();
   dragStarted_ = false;
+
+  if (e.mods.isCtrlDown() || e.mods.isCommandDown())
+  {
+    const int idx = sliceIndexAt(static_cast<float>(e.getPosition().getX()));
+    if (idx >= 0)
+    {
+      const size_t u = static_cast<size_t>(idx);
+      if (selectedSliceIndices_.count(u))
+        selectedSliceIndices_.erase(u);
+      else
+        selectedSliceIndices_.insert(u);
+      repaint();
+    }
+  }
+  else
+    grabKeyboardFocus();
+}
+
+bool WaveformView::keyPressed(const juce::KeyPress& key)
+{
+  if (selectedSliceIndices_.empty())
+    return false;
+  // Shift+Left / Shift+Right: swap selected slice(s) with neighbour; highlight follows the moved slice
+  if (!key.getModifiers().isShiftDown())
+    return false;
+  const int direction = key.getKeyCode() == juce::KeyPress::rightKey ? 1
+                        : key.getKeyCode() == juce::KeyPress::leftKey ? -1
+                                                                      : 0;
+  if (direction == 0)
+    return false;
+  processor_.moveSelectedSlicesInOrder(selectedSliceIndices_, direction);
+
+  // Highlight follows the slice: e.g. was at 5, moved left -> now at 4, so highlight position 4
+  std::unordered_set<size_t> newSel;
+  const size_t numSlices = static_cast<size_t>(processor_.getNumSlices());
+  for (size_t p : selectedSliceIndices_)
+  {
+    const size_t nxt = (direction > 0) ? p + 1 : (p > 0 ? p - 1 : p);
+    if (nxt < numSlices)
+      newSel.insert(nxt);
+  }
+  selectedSliceIndices_ = std::move(newSel);
+
+  repaint();
+  return true;
 }
 
 void WaveformView::mouseDrag(const juce::MouseEvent& e)
@@ -138,10 +220,22 @@ void WaveformView::refresh()
   if (newFile != currentFile_)
   {
     currentFile_ = newFile;
+    selectedSliceIndices_.clear(); // clear selection when sample changes
     if (currentFile_.existsAsFile())
       thumbnail_.setSource(new juce::FileInputSource(currentFile_));
     else
       thumbnail_.clear();
+  }
+  // Prune selection if slice count changed (e.g. BPM/granularity)
+  if (auto state = processor_.getPreparedState())
+  {
+    for (auto it = selectedSliceIndices_.begin(); it != selectedSliceIndices_.end();)
+    {
+      if (*it >= state->slices.size())
+        it = selectedSliceIndices_.erase(it);
+      else
+        ++it;
+    }
   }
   repaint();
 }

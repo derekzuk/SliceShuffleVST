@@ -346,6 +346,122 @@ void SlicerPluginProcessor::rearrangeSample()
   apvts.getParameterAsValue(kSeedId).setValue(static_cast<int>(seed));
 }
 
+std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
+    const std::unordered_set<size_t>& selectedPositions, int direction)
+{
+  if (selectedPositions.empty() || (direction != -1 && direction != 1))
+    return {};
+
+  std::shared_ptr<const PreparedState> state;
+  {
+    std::lock_guard lock(preparedStateMutex_);
+    state = preparedState_;
+  }
+  if (!state || state->slices.empty() || state->playbackOrder.size() != state->slices.size())
+    return {};
+
+  std::vector<size_t> order = state->playbackOrder;
+  const size_t n = order.size();
+  const std::vector<slicer::Slice>& slices = state->slices;
+
+  // selectedPositions = the visual positions (slice indices) the user clicked
+  std::vector<size_t> positions;
+  for (size_t i = 0; i < n; ++i)
+    if (selectedPositions.count(i))
+      positions.push_back(i);
+
+  if (positions.empty())
+    return {};
+
+  const int numCh = state->buffer.getNumChannels();
+  juce::AudioBuffer<float> newBuffer(state->buffer);
+
+  // Group positions into runs of consecutive indices (e.g. [1,2,5] -> runs [1,2] and [5])
+  // For each run we rotate the segment so only those slices move (no trail of copies)
+  std::vector<std::pair<size_t, size_t>> runs; // [start, end] inclusive
+  for (size_t p : positions)
+  {
+    if (!runs.empty() && runs.back().second + 1 == p)
+      runs.back().second = p;
+    else
+      runs.push_back({p, p});
+  }
+
+  for (const auto& [runStart, runEnd] : runs)
+  {
+    if (direction > 0)
+    {
+      const size_t segEnd = runEnd + 1; // segment [runStart, segEnd] rotates right
+      if (segEnd >= n)
+        continue;
+      const size_t segLen = segEnd - runStart + 1;
+      bool sameLength = true;
+      for (size_t i = 0; i < segLen - 1 && sameLength; ++i)
+        if (slices[runStart + i].lengthSamples != slices[runStart + i + 1].lengthSamples)
+          sameLength = false;
+      if (!sameLength)
+        continue;
+
+      std::vector<size_t> oldOrderSeg(segLen);
+      for (size_t i = 0; i < segLen; ++i)
+        oldOrderSeg[i] = order[runStart + i];
+      for (size_t i = 0; i < segLen; ++i)
+        order[runStart + (i + 1) % segLen] = oldOrderSeg[i];
+
+      for (size_t i = 0; i < segLen; ++i)
+      {
+        const size_t srcIdx = runStart + i;
+        const size_t dstIdx = runStart + (i + 1) % segLen;
+        const slicer::Slice& srcSl = slices[srcIdx];
+        const slicer::Slice& dstSl = slices[dstIdx];
+        for (int ch = 0; ch < numCh; ++ch)
+          newBuffer.copyFrom(ch, static_cast<int>(dstSl.startSample), state->buffer,
+                             ch, static_cast<int>(srcSl.startSample), static_cast<int>(srcSl.lengthSamples));
+      }
+    }
+    else
+    {
+      if (runStart == 0)
+        continue;
+      const size_t segStart = runStart - 1;
+      const size_t segLen = runEnd - segStart + 1;
+      bool sameLength = true;
+      for (size_t i = 0; i < segLen - 1 && sameLength; ++i)
+        if (slices[segStart + i].lengthSamples != slices[segStart + i + 1].lengthSamples)
+          sameLength = false;
+      if (!sameLength)
+        continue;
+
+      std::vector<size_t> oldOrderSeg(segLen);
+      for (size_t i = 0; i < segLen; ++i)
+        oldOrderSeg[i] = order[segStart + i];
+      for (size_t i = 0; i < segLen; ++i)
+        order[segStart + (i + segLen - 1) % segLen] = oldOrderSeg[i];
+
+      for (size_t i = 0; i < segLen; ++i)
+      {
+        const size_t srcIdx = segStart + i;
+        const size_t dstIdx = segStart + (i + segLen - 1) % segLen;
+        const slicer::Slice& srcSl = slices[srcIdx];
+        const slicer::Slice& dstSl = slices[dstIdx];
+        for (int ch = 0; ch < numCh; ++ch)
+          newBuffer.copyFrom(ch, static_cast<int>(dstSl.startSample), state->buffer,
+                             ch, static_cast<int>(srcSl.startSample), static_cast<int>(srcSl.lengthSamples));
+      }
+    }
+  }
+
+  auto newState = std::make_shared<PreparedState>();
+  newState->buffer = std::move(newBuffer);
+  newState->sampleRate = state->sampleRate;
+  newState->lengthInSamples = state->lengthInSamples;
+  newState->slices = state->slices;
+  newState->playbackOrder = std::move(order);
+
+  applyNewPreparedState(std::move(newState));
+  return order;
+}
+
 std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnappedToSlices() const
 {
   auto state = getPreparedState();

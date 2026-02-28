@@ -12,10 +12,16 @@ constexpr const char* kGranularityId = "granularity";
 constexpr const char* kSeedId = "seed";
 constexpr const char* kWindowBeatsId = "windowBeats";
 constexpr const char* kWindowPositionId = "windowPosition";
+constexpr const char* kStateVersionAttr = "stateVersion";
+constexpr const char* kSamplePathAttr = "samplePath";
+constexpr const char* kPlaybackOrderAttr = "playbackOrder";
 
-// Beats per slice for each granularity index 0..5
-constexpr double kBeatsPerSlice[] = {0.5, 1.0, 2.0, 4.0, 8.0, 16.0};
-constexpr int kNumGranularityChoices = 6;
+constexpr int kCurrentStateVersion = 1;
+
+// Beats per slice for each granularity index 0..4
+// Order: 1/4, 1/2, 1, 2, 4 beats
+constexpr double kBeatsPerSlice[] = {0.25, 0.5, 1.0, 2.0, 4.0};
+constexpr int kNumGranularityChoices = 5;
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 {
@@ -25,7 +31,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
       juce::NormalisableRange<float>(40.f, 240.f, 0.1f, 1.f), 120.f));
   layout.add(std::make_unique<juce::AudioParameterChoice>(
       juce::ParameterID{kGranularityId, 1}, "Granularity",
-      juce::StringArray{"1/2", "1", "2", "4", "8", "16"}, 1)); // 1 = 1 beat
+      juce::StringArray{"1/4", "1/2", "1", "2", "4"}, 2)); // index 2 = "1" beat default
   layout.add(std::make_unique<juce::AudioParameterInt>(
       juce::ParameterID{kSeedId, 1}, "Seed", 0, 999999, 0));
   // Window = number of slices (min 4); we use even count only (4, 6, 8, …)
@@ -143,7 +149,8 @@ void SlicerPluginProcessor::applyNewPreparedState(std::shared_ptr<const Prepared
 void SlicerPluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float> buffer,
                                                          double sampleRate,
                                                          const juce::String& displayName,
-                                                         const juce::String& path)
+                                                         const juce::String& path,
+                                                         bool forceIdentityOrder)
 {
   const auto totalSamples = static_cast<size_t>(buffer.getNumSamples());
   if (totalSamples == 0 || sampleRate <= 0)
@@ -159,15 +166,45 @@ void SlicerPluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float
   if (slices.empty())
     return;
 
-  const uint32_t seed = static_cast<uint32_t>(*apvts.getRawParameterValue(kSeedId));
-  auto order = slicer::SlicerEngine::shuffledSliceOrder(slices.size(), seed, true);
+  std::vector<size_t> order;
+  if (forceIdentityOrder)
+  {
+    order.resize(slices.size());
+    std::iota(order.begin(), order.end(), size_t(0));
+  }
+  else
+  {
+    const uint32_t seed = static_cast<uint32_t>(*apvts.getRawParameterValue(kSeedId));
+    if (seed == 0)
+    {
+      order.resize(slices.size());
+      std::iota(order.begin(), order.end(), size_t(0));
+    }
+    else
+    {
+      order = slicer::SlicerEngine::shuffledSliceOrder(slices.size(), seed, true);
+    }
+  }
 
   auto state = std::make_shared<PreparedState>();
   state->buffer = std::move(buffer);
   state->sampleRate = sampleRate;
   state->lengthInSamples = static_cast<juce::int64>(totalSamples);
   state->slices = std::move(slices);
-  state->playbackOrder = std::move(order);
+  // If we are restoring from preset/state, we may have a pending playback order.
+  // When forcing identity (e.g. after granularity/BPM change), we intentionally
+  // ignore any pending order and reset arrangement.
+  if (!forceIdentityOrder &&
+      !pendingPlaybackOrder_.empty() &&
+      pendingPlaybackOrder_.size() == state->slices.size())
+  {
+    state->playbackOrder = pendingPlaybackOrder_;
+    pendingPlaybackOrder_.clear();
+  }
+  else
+  {
+    state->playbackOrder = std::move(order);
+  }
 
   {
     std::unique_lock lock(stateMutex_);
@@ -225,7 +262,7 @@ void SlicerPluginProcessor::loadSampleFromFile(const juce::File& file)
 
     juce::MessageManager::callAsync([this, buf = std::move(decodedBuffer), sr, displayName, path]() mutable
     {
-      buildPreparedStateFromBuffer(std::move(buf), sr, displayName, path);
+      buildPreparedStateFromBuffer(std::move(buf), sr, displayName, path, false);
     });
   });
 }
@@ -264,8 +301,9 @@ void SlicerPluginProcessor::regenerateSliceMap()
     displayName = loadedSampleDisplayName_;
     path = loadedSamplePath_;
   }
+  // Changing granularity/BPM resets arrangement to identity on the new slice grid.
   buildPreparedStateFromBuffer(
-      juce::AudioBuffer<float>(state->buffer), state->sampleRate, displayName, path);
+      juce::AudioBuffer<float>(state->buffer), state->sampleRate, displayName, path, true);
 }
 
 void SlicerPluginProcessor::rearrangeSample()
@@ -278,72 +316,55 @@ void SlicerPluginProcessor::rearrangeSample()
   if (!state || state->buffer.getNumSamples() == 0)
     return;
 
-  const auto totalSamples = static_cast<size_t>(state->buffer.getNumSamples());
-  const double sampleRate = state->sampleRate;
-  const double bpm = static_cast<double>(*apvts.getRawParameterValue(kBpmId));
-  if (sampleRate <= 0 || bpm <= 0)
+  if (state->slices.empty())
     return;
 
-  auto [startSample, endSample] = getWindowRangeSnappedToSlices();
-  const size_t startSampleS = static_cast<size_t>(juce::jmax(juce::int64(0), startSample));
-  const size_t endSampleS = static_cast<size_t>(juce::jmin(static_cast<juce::int64>(totalSamples), endSample));
-  const size_t windowLengthSamples = (endSampleS > startSampleS) ? (endSampleS - startSampleS) : 0;
-  if (windowLengthSamples == 0)
+  const auto [physStart, physEnd] = getWindowSliceRange(*state);
+  if (physEnd <= physStart)
     return;
 
-  slicer::SlicerEngine engine;
-  engine.setBpm(bpm);
-  const int granIndex = juce::jlimit(
-      0, kNumGranularityChoices - 1,
-      static_cast<int>(std::round(apvts.getRawParameterValue(kGranularityId)->load())));
-  const double beatsPerSlice = kBeatsPerSlice[granIndex];
-  std::vector<slicer::Slice> windowSlices =
-      engine.computeSlices(windowLengthSamples, sampleRate, beatsPerSlice);
-  if (windowSlices.empty())
+  const size_t totalSlices = state->slices.size();
+  if (state->playbackOrder.size() != totalSlices)
     return;
 
-  const size_t numSlices = windowSlices.size();
+  // Collect physical slice indices that lie inside the window.
+  std::vector<size_t> physInWindow;
+  physInWindow.reserve(physEnd - physStart);
+  for (size_t p = physStart; p < physEnd; ++p)
+    physInWindow.push_back(p);
+
+  // Collect logical positions whose current physical slice is in that window.
+  std::vector<size_t> logicalPositions;
+  logicalPositions.reserve(physInWindow.size());
+  for (size_t logical = 0; logical < totalSlices; ++logical)
+  {
+    const size_t phys = state->playbackOrder[logical];
+    if (phys >= physStart && phys < physEnd)
+      logicalPositions.push_back(logical);
+  }
+
+  if (logicalPositions.size() <= 1 || physInWindow.empty())
+    return;
+
   const uint32_t seed = static_cast<uint32_t>(juce::Random::getSystemRandom().nextInt(1000000));
   const std::vector<size_t> order =
-      slicer::SlicerEngine::shuffledSliceOrder(numSlices, seed, true);
+      slicer::SlicerEngine::shuffledSliceOrder(physInWindow.size(), seed, true);
 
-  const int numCh = state->buffer.getNumChannels();
-  juce::AudioBuffer<float> newBuffer(state->buffer.getNumChannels(), state->buffer.getNumSamples());
-  newBuffer.makeCopyOf(state->buffer);
-
-  size_t writePos = 0;
-  for (size_t i = 0; i < numSlices; ++i)
+  // Non-destructive: shuffle only the set of physical slices that belong to
+  // the window, and only at the logical positions currently mapped to them.
+  std::vector<size_t> newOrder = state->playbackOrder;
+  const size_t count = std::min(logicalPositions.size(), physInWindow.size());
+  for (size_t i = 0; i < count; ++i)
   {
-    const size_t srcIdx = order[i];
-    const slicer::Slice& srcSl = windowSlices[srcIdx];
-    const size_t srcStartInFull = startSampleS + srcSl.startSample;
-    const size_t dstStartInFull = startSampleS + writePos;
-    for (int ch = 0; ch < numCh; ++ch)
-    {
-      newBuffer.copyFrom(ch, static_cast<int>(dstStartInFull), state->buffer,
-                        ch, static_cast<int>(srcStartInFull),
-                        static_cast<int>(srcSl.lengthSamples));
-    }
-    writePos += srcSl.lengthSamples;
+    const size_t dstLogical = logicalPositions[i];
+    const size_t srcPhys = physInWindow[order[i]];
+    newOrder[dstLogical] = srcPhys;
   }
 
-  engine.setBpm(bpm);
-  std::vector<slicer::Slice> fullSlices =
-      engine.computeSlices(totalSamples, sampleRate, beatsPerSlice);
-  std::vector<size_t> identityOrder(fullSlices.size());
-  std::iota(identityOrder.begin(), identityOrder.end(), size_t(0));
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->playbackOrder = std::move(newOrder);
 
-  auto newState = std::make_shared<PreparedState>();
-  newState->buffer = std::move(newBuffer);
-  newState->sampleRate = state->sampleRate;
-  newState->lengthInSamples = static_cast<juce::int64>(totalSamples);
-  newState->slices = std::move(fullSlices);
-  newState->playbackOrder = std::move(identityOrder);
-
-  {
-    std::lock_guard lock(preparedStateMutex_);
-    preparedState_ = std::move(newState);
-  }
+  applyNewPreparedState(std::move(newState));
 
   apvts.getParameterAsValue(kSeedId).setValue(static_cast<int>(seed));
 }
@@ -374,9 +395,6 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
 
   if (positions.empty())
     return {};
-
-  const int numCh = state->buffer.getNumChannels();
-  juce::AudioBuffer<float> newBuffer(state->buffer);
 
   // Group positions into runs of consecutive indices (e.g. [1,2,5] -> runs [1,2] and [5])
   // For each run we rotate the segment so only those slices move (no trail of copies)
@@ -411,20 +429,6 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
       for (size_t i = 0; i < segLen; ++i)
         order[runStart + (i + 1) % segLen] = oldOrderSeg[i];
 
-      const size_t copyLen = (sameLength || segLen != 2)
-                                 ? static_cast<size_t>(-1)
-                                 : std::min(slices[runStart].lengthSamples, slices[runEnd].lengthSamples);
-      for (size_t i = 0; i < segLen; ++i)
-      {
-        const size_t srcIdx = runStart + i;
-        const size_t dstIdx = runStart + (i + 1) % segLen;
-        const slicer::Slice& srcSl = slices[srcIdx];
-        const slicer::Slice& dstSl = slices[dstIdx];
-        const size_t len = (copyLen == static_cast<size_t>(-1)) ? srcSl.lengthSamples : copyLen;
-        for (int ch = 0; ch < numCh; ++ch)
-          newBuffer.copyFrom(ch, static_cast<int>(dstSl.startSample), state->buffer,
-                             ch, static_cast<int>(srcSl.startSample), static_cast<int>(len));
-      }
     }
     else
     {
@@ -446,29 +450,11 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
       for (size_t i = 0; i < segLen; ++i)
         order[segStart + (i + segLen - 1) % segLen] = oldOrderSeg[i];
 
-      const size_t copyLen = (sameLength || segLen != 2)
-                                 ? static_cast<size_t>(-1)
-                                 : std::min(slices[segStart].lengthSamples, slices[runEnd].lengthSamples);
-      for (size_t i = 0; i < segLen; ++i)
-      {
-        const size_t srcIdx = segStart + i;
-        const size_t dstIdx = segStart + (i + segLen - 1) % segLen;
-        const slicer::Slice& srcSl = slices[srcIdx];
-        const slicer::Slice& dstSl = slices[dstIdx];
-        const size_t len = (copyLen == static_cast<size_t>(-1)) ? srcSl.lengthSamples : copyLen;
-        for (int ch = 0; ch < numCh; ++ch)
-          newBuffer.copyFrom(ch, static_cast<int>(dstSl.startSample), state->buffer,
-                             ch, static_cast<int>(srcSl.startSample), static_cast<int>(len));
-      }
     }
   }
 
-  auto newState = std::make_shared<PreparedState>();
-  newState->buffer = std::move(newBuffer);
-  newState->sampleRate = state->sampleRate;
-  newState->lengthInSamples = state->lengthInSamples;
-  newState->slices = state->slices;
-  newState->playbackOrder = std::move(order);
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->playbackOrder = order;
 
   applyNewPreparedState(std::move(newState));
   return order;
@@ -477,11 +463,19 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
 std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnappedToSlices() const
 {
   auto state = getPreparedState();
-  const juce::int64 totalSamples = state ? state->lengthInSamples : 0;
-  if (!state || totalSamples <= 0)
+  if (!state)
+    return {0, 0};
+  return getWindowRangeSnappedToSlices(*state);
+}
+
+std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnappedToSlices(
+    const PreparedState& state) const
+{
+  const juce::int64 totalSamples = state.lengthInSamples;
+  if (totalSamples <= 0)
     return {0, 0};
 
-  const std::vector<slicer::Slice>& slices = state->slices;
+  const std::vector<slicer::Slice>& slices = state.slices;
   if (slices.empty())
     return {0, totalSamples};
 
@@ -495,8 +489,9 @@ std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnapped
 
   const float posNorm = apvts.getRawParameterValue(kWindowPositionId)->load();
   const size_t maxStart = numSlices - windowSlices;
-  const size_t startIdx = std::min(maxStart,
-                                  static_cast<size_t>(std::round(static_cast<double>(posNorm) * static_cast<double>(maxStart))));
+  const size_t startIdx = std::min(
+      maxStart,
+      static_cast<size_t>(std::round(static_cast<double>(posNorm) * static_cast<double>(maxStart))));
 
   const slicer::Slice& first = slices[startIdx];
   const slicer::Slice& last = slices[startIdx + windowSlices - 1];
@@ -513,30 +508,25 @@ void SlicerPluginProcessor::startPreview()
     std::lock_guard lock(preparedStateMutex_);
     state = preparedState_;
   }
-  previewSamplePos_.store(0);
+  previewPlaybackPos_.store(0.f);
   if (!state || state->buffer.getNumSamples() == 0 || state->sampleRate <= 0)
   {
-    previewStartSample_.store(0);
     previewLengthSamples_.store(0);
     previewActive_.store(true);
     return;
   }
-  const juce::int64 totalSamples = state->lengthInSamples;
-  auto [startSample, endSample] = getWindowRangeSnappedToSlices();
-  const juce::int64 windowLengthSamples = juce::jmax(juce::int64(0), endSample - startSample);
-  const juce::int64 maxPreviewSamples = static_cast<juce::int64>(kPreviewLengthSeconds * hostSampleRate_);
 
-  // Always preview what's in the window; cap length to kPreviewLengthSeconds
-  if (windowLengthSamples > 0)
+  // Render current window (respecting playbackOrder) into preview buffer at file sample rate.
   {
-    previewStartSample_.store(startSample);
-    previewLengthSamples_.store(juce::jmin(windowLengthSamples, maxPreviewSamples));
+    renderWindowToBuffer(*state, previewBuffer_);
   }
-  else
-  {
-    previewStartSample_.store(0);
-    previewLengthSamples_.store(juce::jmin(totalSamples, maxPreviewSamples));
-  }
+  const juce::int64 totalPreviewSamples = previewBuffer_.getNumSamples();
+  // Cap at 5 seconds in source (file) time so playback duration matches export.
+  const juce::int64 maxPreviewSourceSamples =
+      static_cast<juce::int64>(kPreviewLengthSeconds * state->sampleRate);
+  previewLengthSamples_.store(juce::jmin(totalPreviewSamples, maxPreviewSourceSamples));
+  previewSourceToHostRatio_.store(
+      static_cast<float>(state->sampleRate / hostSampleRate_));
   previewActive_.store(true);
 }
 
@@ -561,39 +551,38 @@ void SlicerPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     state = preparedState_;
   }
 
-  // Preview: play region (window if < 5 sec, else first 5 sec)
-  if (previewActive_.load() && state && state->buffer.getNumSamples() > 0)
+  // Preview: play pre-rendered window (respecting playbackOrder), resampling file rate -> host rate
+  if (previewActive_.load() && previewBuffer_.getNumSamples() > 0)
   {
-    const int numSrcCh = state->buffer.getNumChannels();
-    const juce::int64 totalSamples = state->lengthInSamples;
-    const juce::int64 startS = previewStartSample_.load();
+    const int numSrcCh = previewBuffer_.getNumChannels();
+    const int totalSamples = previewBuffer_.getNumSamples();
     const juce::int64 lenS = previewLengthSamples_.load();
     const int blockSamples = buffer.getNumSamples();
     const int numOutCh = buffer.getNumChannels();
-    juce::int64 pos = previewSamplePos_.load();
+    const float ratio = previewSourceToHostRatio_.load();
+    float pos = previewPlaybackPos_.load();
 
     for (int i = 0; i < blockSamples; ++i)
     {
-      if (lenS <= 0 || pos >= lenS)
+      if (lenS <= 0 || pos >= static_cast<float>(lenS))
       {
         previewActive_.store(false);
         break;
       }
-      const juce::int64 srcPos = startS + pos;
-      if (srcPos < 0 || srcPos >= totalSamples)
-      {
-        previewActive_.store(false);
-        break;
-      }
+      const int i0 = static_cast<int>(pos);
+      const int i1 = juce::jmin(i0 + 1, totalSamples - 1);
+      const float frac = pos - static_cast<float>(i0);
       for (int ch = 0; ch < numOutCh; ++ch)
       {
         const int srcCh = std::min(ch, numSrcCh - 1);
-        buffer.addSample(ch, i, state->buffer.getSample(srcCh, static_cast<int>(srcPos)));
+        const float s0 = previewBuffer_.getSample(srcCh, i0);
+        const float s1 = previewBuffer_.getSample(srcCh, i1);
+        buffer.addSample(ch, i, s0 + frac * (s1 - s0));
       }
-      ++pos;
+      pos += ratio;
     }
-    previewSamplePos_.store(pos);
-    if (lenS > 0 && pos >= lenS)
+    previewPlaybackPos_.store(pos);
+    if (lenS > 0 && pos >= static_cast<float>(lenS))
       previewActive_.store(false);
     return;
   }
@@ -707,35 +696,242 @@ juce::AudioProcessorEditor* SlicerPluginProcessor::createEditor()
 
 void SlicerPluginProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-  auto state = apvts.copyState();
-  std::unique_ptr<juce::XmlElement> xml(state.createXml());
-  if (xml.get())
-  {
-    xml->setAttribute("samplePath", loadedSamplePath_);
+  auto xml = createFullStateXml();
+  if (xml)
     copyXmlToBinary(*xml, destData);
-  }
 }
 
 void SlicerPluginProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
   std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
-  if (xml.get())
+  if (xml)
   {
-    apvts.replaceState(juce::ValueTree::fromXml(*xml));
-    juce::String path = xml->getStringAttribute("samplePath", {});
-    if (path.isNotEmpty())
+    restoreStateFromXml(*xml);
+    // Reset waveform to identity order when restoring from memory (startup/session).
+    resetArrangement();
+  }
+}
+
+std::unique_ptr<juce::XmlElement> SlicerPluginProcessor::createFullStateXml() const
+{
+  auto vt = const_cast<juce::AudioProcessorValueTreeState&>(apvts).copyState();
+  std::unique_ptr<juce::XmlElement> xml(vt.createXml());
+  if (!xml)
+    return nullptr;
+
+  // Version for future-proofing
+  xml->setAttribute(kStateVersionAttr, kCurrentStateVersion);
+
+  // Persist the sample path (path-based loading strategy)
+  {
+    std::shared_lock lock(stateMutex_);
+    xml->setAttribute(kSamplePathAttr, loadedSamplePath_);
+  }
+
+  // Persist playback order so manual slice reordering survives reloads
+  if (auto prepared = getPreparedState())
+  {
+    if (!prepared->playbackOrder.empty())
     {
-      juce::File f(path);
-      if (f.existsAsFile())
-        loadSampleFromFile(f);
-      else
+      juce::String orderString;
+      const size_t n = prepared->playbackOrder.size();
+      for (size_t i = 0; i < n; ++i)
       {
-        std::unique_lock lock(stateMutex_);
-        loadedSamplePath_ = path;
-        loadedSampleDisplayName_ = f.getFileName();
-        setLoadStatus(LoadStatus::Missing);
+        if (i > 0)
+          orderString << ",";
+        orderString << static_cast<int>(prepared->playbackOrder[i]);
       }
+      xml->setAttribute(kPlaybackOrderAttr, orderString);
     }
+  }
+
+  return xml;
+}
+
+void SlicerPluginProcessor::restoreStateFromXml(const juce::XmlElement& xml)
+{
+  // Restore APVTS (all parameters)
+  apvts.replaceState(juce::ValueTree::fromXml(xml));
+
+  // Versioning hook (currently unused but kept for future migrations)
+  const int version = xml.getIntAttribute(kStateVersionAttr, 0);
+  juce::ignoreUnused(version);
+
+  // Restore any saved playback order so it can be applied after sample load
+  pendingPlaybackOrder_.clear();
+  const juce::String playbackOrderStr = xml.getStringAttribute(kPlaybackOrderAttr, {});
+  if (playbackOrderStr.isNotEmpty())
+  {
+    juce::StringArray tokens;
+    tokens.addTokens(playbackOrderStr, ",", "");
+    tokens.removeEmptyStrings();
+    pendingPlaybackOrder_.reserve(static_cast<size_t>(tokens.size()));
+    for (const auto& t : tokens)
+    {
+      const int v = t.getIntValue();
+      if (v >= 0)
+        pendingPlaybackOrder_.push_back(static_cast<size_t>(v));
+    }
+  }
+
+  // Restore sample path and kick off async load (or mark Missing)
+  const juce::String path = xml.getStringAttribute(kSamplePathAttr, {});
+  if (path.isEmpty())
+    return;
+
+  juce::File f(path);
+  if (f.existsAsFile())
+  {
+    loadSampleFromFile(f);
+  }
+  else
+  {
+    std::unique_lock lock(stateMutex_);
+    loadedSamplePath_ = path;
+    loadedSampleDisplayName_ = f.getFileName();
+    setLoadStatus(LoadStatus::Missing);
+  }
+}
+
+bool SlicerPluginProcessor::savePresetToFile(const juce::File& file) const
+{
+  auto xml = createFullStateXml();
+  if (!xml)
+    return false;
+
+  juce::FileOutputStream out(file);
+  if (!out.openedOk())
+    return false;
+
+  out.setNewLineString("\n");
+  out << xml->toString();
+  out.flush();
+  return true;
+}
+
+bool SlicerPluginProcessor::loadPresetFromFile(const juce::File& file)
+{
+  if (!file.existsAsFile())
+    return false;
+
+  juce::XmlDocument doc(file);
+  std::unique_ptr<juce::XmlElement> xml(doc.getDocumentElement());
+  if (!xml)
+    return false;
+
+  loadingPreset_.store(true);
+  restoreStateFromXml(*xml);
+  loadingPreset_.store(false);
+  return true;
+}
+
+void SlicerPluginProcessor::resetArrangement()
+{
+  std::shared_ptr<const PreparedState> state;
+  {
+    std::lock_guard lock(preparedStateMutex_);
+    state = preparedState_;
+  }
+  if (!state || state->slices.empty())
+    return;
+
+  const size_t n = state->slices.size();
+  std::vector<size_t> identityOrder(n);
+  std::iota(identityOrder.begin(), identityOrder.end(), size_t(0));
+
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->playbackOrder = std::move(identityOrder);
+
+  applyNewPreparedState(std::move(newState));
+}
+
+std::pair<size_t, size_t> SlicerPluginProcessor::getWindowSliceRange(const PreparedState& state) const
+{
+  auto [startSample, endSample] = getWindowRangeSnappedToSlices(state);
+  if (endSample <= startSample)
+    return {0, 0};
+
+  const std::vector<slicer::Slice>& slices = state.slices;
+  const size_t numSlices = slices.size();
+  size_t firstSlice = numSlices;
+  size_t lastSlice = 0;
+  for (size_t i = 0; i < numSlices; ++i)
+  {
+    const auto& sl = slices[i];
+    const juce::int64 slStart = static_cast<juce::int64>(sl.startSample);
+    const juce::int64 slEnd = slStart + static_cast<juce::int64>(sl.lengthSamples);
+    if (slEnd <= startSample || slStart >= endSample)
+      continue;
+    firstSlice = std::min(firstSlice, i);
+    lastSlice = std::max(lastSlice, i);
+  }
+
+  if (firstSlice == numSlices || lastSlice < firstSlice)
+    return {0, 0};
+
+  return {firstSlice, lastSlice + 1}; // [start, end)
+}
+
+void SlicerPluginProcessor::renderWindowToBuffer(const PreparedState& state,
+                                                 juce::AudioBuffer<float>& out) const
+{
+  const auto [physStart, physEnd] = getWindowSliceRange(state);
+  if (physEnd <= physStart)
+  {
+    out.setSize(0, 0);
+    return;
+  }
+
+  const size_t totalSlices = state.slices.size();
+  if (state.playbackOrder.size() != totalSlices)
+  {
+    out.setSize(0, 0);
+    return;
+  }
+
+  const int numCh = state.buffer.getNumChannels();
+  size_t totalSamples = 0;
+
+  // First pass: find logical positions whose physical slice lies in the window.
+  std::vector<size_t> logicalPositions;
+  logicalPositions.reserve(totalSlices);
+  for (size_t logical = 0; logical < totalSlices; ++logical)
+  {
+    const size_t srcIdx = state.playbackOrder[logical];
+    if (srcIdx < physStart || srcIdx >= physEnd)
+      continue;
+    logicalPositions.push_back(logical);
+    totalSamples += state.slices[srcIdx].lengthSamples;
+  }
+
+  if (totalSamples == 0)
+  {
+    out.setSize(0, 0);
+    return;
+  }
+
+  out.setSize(numCh, static_cast<int>(totalSamples), false, false, true);
+  out.clear();
+
+  size_t writePos = 0;
+  for (size_t logical : logicalPositions)
+  {
+    const size_t srcIdx = state.playbackOrder[logical];
+    if (srcIdx >= totalSlices)
+      continue;
+    const auto& sl = state.slices[srcIdx];
+    const int len = static_cast<int>(sl.lengthSamples);
+    const int srcStart = static_cast<int>(sl.startSample);
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+      out.copyFrom(ch,
+                   static_cast<int>(writePos),
+                   state.buffer,
+                   ch,
+                   srcStart,
+                   len);
+    }
+    writePos += static_cast<size_t>(len);
   }
 }
 

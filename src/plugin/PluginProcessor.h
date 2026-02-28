@@ -55,6 +55,20 @@ public:
   juce::AudioProcessorValueTreeState& getValueTreeState() { return apvts; }
   const juce::AudioProcessorValueTreeState& getValueTreeState() const { return apvts; }
 
+  /** Save current plugin state to an external preset file. */
+  bool savePresetToFile(const juce::File& file) const;
+  /** Load plugin state from an external preset file. */
+  bool loadPresetFromFile(const juce::File& file);
+
+  /** True while loadPresetFromFile is restoring state (editor uses this to suppress granularity dialog). */
+  bool isLoadingPreset() const { return loadingPreset_.load(); }
+
+  /** Reset slice playback order to identity for the current sample. */
+  void resetArrangement();
+
+  /** Render the current window region (respecting playbackOrder) into out. */
+  void renderWindowToBuffer(const PreparedState& state, juce::AudioBuffer<float>& out) const;
+
   /** Called from UI thread. Starts async load; status becomes Loading then Ready/Error. */
   void loadSampleFromFile(const juce::File& file);
   /** Clear sample and set status to Idle. */
@@ -79,6 +93,7 @@ public:
 
   /** Window range (startSample, endSample) snapped to slice boundaries (and file start/end). */
   std::pair<juce::int64, juce::int64> getWindowRangeSnappedToSlices() const;
+  std::pair<juce::int64, juce::int64> getWindowRangeSnappedToSlices(const PreparedState& state) const;
 
   /** Last triggered slice index (for UI readout); written from audio thread, read from UI. */
   std::atomic<int> lastTriggeredSliceIndex{-1};
@@ -88,7 +103,14 @@ private:
   void setLoadStatus(LoadStatus s);
   void setLoadError(const juce::String& text);
   void buildPreparedStateFromBuffer(juce::AudioBuffer<float> buffer, double sampleRate,
-                                    const juce::String& displayName, const juce::String& path);
+                                    const juce::String& displayName, const juce::String& path,
+                                    bool forceIdentityOrder = false);
+
+  std::unique_ptr<juce::XmlElement> createFullStateXml() const;
+  void restoreStateFromXml(const juce::XmlElement& xml);
+
+  // Helpers for non-destructive rearrange/preview.
+  std::pair<size_t, size_t> getWindowSliceRange(const PreparedState& state) const;
 
   juce::AudioProcessorValueTreeState apvts;
 
@@ -99,6 +121,10 @@ private:
   juce::String loadedSampleDisplayName_;
   juce::String loadedSamplePath_;
   mutable std::shared_mutex stateMutex_;
+
+  // When restoring from saved state we may have a custom playback order
+  // that should be applied after the sample has been (re)loaded.
+  std::vector<size_t> pendingPlaybackOrder_;
 
   juce::ThreadPool loadPool_{1};
   std::atomic<uint64_t> loadJobId_{0};
@@ -118,9 +144,16 @@ private:
 
   static constexpr double kPreviewLengthSeconds = 5.0;
   std::atomic<bool> previewActive_{false};
-  std::atomic<juce::int64> previewSamplePos_{0};
-  std::atomic<juce::int64> previewStartSample_{0};
+  /** Playback position in source (file) sample space; advanced by previewSourceToHostRatio_ per output sample. */
+  std::atomic<float> previewPlaybackPos_{0.f};
+  /** Source samples per host output sample (fileSampleRate / hostSampleRate). */
+  std::atomic<float> previewSourceToHostRatio_{1.f};
   std::atomic<juce::int64> previewLengthSamples_{0};
+
+  // Pre-rendered buffer for preview (window, at file sample rate).
+  juce::AudioBuffer<float> previewBuffer_;
+
+  std::atomic<bool> loadingPreset_{false};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SlicerPluginProcessor)
 };

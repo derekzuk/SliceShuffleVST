@@ -30,14 +30,16 @@ void WaveformView::paint(juce::Graphics& g)
   const float width = bounds.getWidth();
   const float height = bounds.getHeight();
   const juce::int64 totalSamples = state->lengthInSamples;
-  auto [windowStartSample, windowEndSample] = processor_.getWindowRangeSnappedToSlices();
+  auto [windowStartSample, windowEndSample] = processor_.getWindowRangeSnappedToSlices(*state);
   const juce::int64 rangeStart = juce::jlimit(juce::int64(0), totalSamples, windowStartSample);
   const juce::int64 rangeEnd = juce::jmin(totalSamples, windowEndSample);
   const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
 
-  // Bottom view shows only the window range (zoomed to fill width)
-  const int numChannels = state->buffer.getNumChannels();
-  const int numSamples = state->buffer.getNumSamples();
+  // Build a window buffer that reflects the current playbackOrder (non-destructive rearrange).
+  juce::AudioBuffer<float> windowBuffer;
+  processor_.renderWindowToBuffer(*state, windowBuffer);
+  const int numChannels = windowBuffer.getNumChannels();
+  const int numSamples = windowBuffer.getNumSamples();
   if (numSamples > 0 && rangeLength > 0)
   {
     g.setColour(juce::Colour(0xff404060));
@@ -46,19 +48,19 @@ void WaveformView::paint(juce::Graphics& g)
     const int w = static_cast<int>(width);
     std::vector<float> maxPerCol(static_cast<size_t>(w), -1.0f);
     std::vector<float> minPerCol(static_cast<size_t>(w), 1.0f);
-    const float rangeLenF = static_cast<float>(rangeLength);
+    const float rangeLenF = static_cast<float>(numSamples);
     for (int x = 0; x < w; ++x)
     {
-      const juce::int64 sampleLo = rangeStart + static_cast<juce::int64>((static_cast<float>(x) / width) * rangeLenF);
-      const juce::int64 sampleHi = rangeStart + static_cast<juce::int64>((static_cast<float>(x + 1) / width) * rangeLenF) + 1;
-      const int lo = static_cast<int>(juce::jlimit(juce::int64(0), static_cast<juce::int64>(numSamples), sampleLo));
-      const int hi = static_cast<int>(juce::jlimit(juce::int64(0), static_cast<juce::int64>(numSamples), sampleHi));
+      const int sampleLo = static_cast<int>((static_cast<float>(x) / width) * rangeLenF);
+      const int sampleHi = static_cast<int>((static_cast<float>(x + 1) / width) * rangeLenF) + 1;
+      const int lo = juce::jlimit(0, numSamples, sampleLo);
+      const int hi = juce::jlimit(0, numSamples, sampleHi);
       if (hi <= lo) continue;
       float mx = -1.0f;
       float mn = 1.0f;
       for (int ch = 0; ch < numChannels; ++ch)
       {
-        const float* data = state->buffer.getReadPointer(ch);
+        const float* data = windowBuffer.getReadPointer(ch);
         for (int i = lo; i < hi; ++i)
         {
           const float s = data[i];
@@ -79,7 +81,8 @@ void WaveformView::paint(juce::Graphics& g)
     g.fillPath(p);
   }
 
-  // Selected slices: reddish highlight (positions relative to window range)
+  // Selected slices: reddish highlight (positions relative to window range).
+  // For now this still uses physical slice positions; selection logic remains unchanged.
   if (!state->slices.empty() && rangeLength > 0)
   {
     g.setColour(juce::Colour(0x44cc3333)); // semi-transparent red
@@ -134,7 +137,7 @@ int WaveformView::sliceIndexAt(float x) const
     return -1;
   const float width = static_cast<float>(getWidth());
   if (width <= 0.0f) return -1;
-  auto [rangeStart, rangeEnd] = processor_.getWindowRangeSnappedToSlices();
+  auto [rangeStart, rangeEnd] = processor_.getWindowRangeSnappedToSlices(*state);
   const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
   if (rangeLength <= 0) return -1;
   const juce::int64 sample = rangeStart + static_cast<juce::int64>((x / width) * static_cast<float>(rangeLength));

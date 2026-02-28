@@ -75,6 +75,7 @@ target_sources(SlicerPlugin
   PRIVATE
   plugin/PluginProcessor.cpp
   plugin/PluginEditor.cpp
+  plugin/StandaloneWindow.cpp
   plugin/TopBarComponent.cpp
   plugin/WaveformOverview.cpp
   plugin/WaveformView.cpp
@@ -88,6 +89,8 @@ target_compile_definitions(SlicerPlugin
   JUCE_WEB_BROWSER=0
   JUCE_USE_CURL=0
   JUCE_VST3_CAN_REPLACE_VST2=0
+  PRIVATE
+  JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
 )
 
 target_link_libraries(SlicerPlugin

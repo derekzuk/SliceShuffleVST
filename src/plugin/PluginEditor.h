@@ -43,4 +43,6 @@ private:
   juce::TextButton exportButton_;
   juce::File lastLoadedPath_;
   juce::int64 regenerateScheduledAt_{0};
+  int lastGranularityIndex_{2};  // 2 = "1 beat" (ComboBox selectedId 3, param value 2)
+  bool revertingGranularity_{false};
 };

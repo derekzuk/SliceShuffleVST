@@ -66,14 +66,15 @@ SlicerPluginEditor::SlicerPluginEditor(SlicerPluginProcessor& p)
   });
   topBar_.setOnResetClicked([this]()
   {
-    juce::File path(processorRef.getLoadedSamplePath());
-    if (path.existsAsFile())
-      processorRef.loadSampleFromFile(path);
+    processorRef.resetArrangement();
+    waveformView_.clearSelection();
   });
 
   processorRef.getValueTreeState().addParameterListener("bpm", this);
   processorRef.getValueTreeState().addParameterListener("granularity", this);
-  processorRef.getValueTreeState().addParameterListener("seed", this);
+
+  lastGranularityIndex_ = static_cast<int>(std::round(
+      processorRef.getValueTreeState().getRawParameterValue("granularity")->load()));
 
   startTimerHz(20);
   setSize(720, 420);
@@ -83,7 +84,6 @@ SlicerPluginEditor::~SlicerPluginEditor()
 {
   processorRef.getValueTreeState().removeParameterListener("bpm", this);
   processorRef.getValueTreeState().removeParameterListener("granularity", this);
-  processorRef.getValueTreeState().removeParameterListener("seed", this);
   stopTimer();
 }
 
@@ -135,8 +135,51 @@ void SlicerPluginEditor::timerCallback()
 
 void SlicerPluginEditor::parameterChanged(const juce::String& id, float)
 {
-  if (id == "bpm" || id == "granularity" || id == "seed")
+  if (id == "bpm")
+  {
     scheduleRegenerateSliceMap();
+    return;
+  }
+  if (id == "granularity")
+  {
+    if (revertingGranularity_)
+      return;
+    const int newIndex = static_cast<int>(std::round(
+        processorRef.getValueTreeState().getRawParameterValue("granularity")->load()));
+    if (processorRef.isLoadingPreset())
+    {
+      lastGranularityIndex_ = newIndex;
+      return;
+    }
+    const int previousIndex = lastGranularityIndex_;
+    auto options = juce::MessageBoxOptions::makeOptionsOkCancel(
+        juce::MessageBoxIconType::InfoIcon,
+        "Granularity changed",
+        "Changing granularity resets the slice arrangement to the original order.",
+        "OK",
+        "Cancel",
+        this);
+    juce::AlertWindow::showAsync(options, [this, previousIndex, newIndex](int buttonIndex)
+    {
+      // Button order is platform-dependent: 0 may be Cancel, 1 may be OK (or vice versa).
+      const bool confirmed = (buttonIndex == 1);
+      if (confirmed)
+      {
+        revertingGranularity_ = true;
+        processorRef.getValueTreeState().getParameterAsValue("granularity").setValue(newIndex);
+        revertingGranularity_ = false;
+        lastGranularityIndex_ = newIndex;
+        waveformView_.clearSelection();
+        scheduleRegenerateSliceMap();
+      }
+      else
+      {
+        revertingGranularity_ = true;
+        processorRef.getValueTreeState().getParameterAsValue("granularity").setValue(previousIndex);
+        revertingGranularity_ = false;
+      }
+    });
+  }
 }
 
 void SlicerPluginEditor::scheduleRegenerateSliceMap()
@@ -149,15 +192,10 @@ bool SlicerPluginEditor::writeWindowToWavFile(const juce::File& file) const
   auto state = processorRef.getPreparedState();
   if (!state || state->buffer.getNumSamples() == 0 || state->sampleRate <= 0)
     return false;
-  auto [startSample, endSample] = processorRef.getWindowRangeSnappedToSlices();
-  const int lengthSamples = static_cast<int>(juce::jmax(juce::int64(0), endSample - startSample));
-  if (lengthSamples <= 0)
+  juce::AudioBuffer<float> windowBuffer;
+  processorRef.renderWindowToBuffer(*state, windowBuffer);
+  if (windowBuffer.getNumSamples() <= 0)
     return false;
-  const juce::AudioBuffer<float>& fullBuffer = state->buffer;
-  juce::AudioBuffer<float> windowBuffer(fullBuffer.getNumChannels(), lengthSamples);
-  const int start = static_cast<int>(juce::jlimit(juce::int64(0), static_cast<juce::int64>(fullBuffer.getNumSamples()), startSample));
-  for (int ch = 0; ch < fullBuffer.getNumChannels(); ++ch)
-    windowBuffer.copyFrom(ch, 0, fullBuffer, ch, start, lengthSamples);
   return writeWav(file, windowBuffer, state->sampleRate);
 }
 

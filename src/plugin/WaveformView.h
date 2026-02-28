@@ -23,6 +23,9 @@ public:
   /** Returns the set of selected slice indices (control+click). */
   const std::unordered_set<size_t>& getSelectedSliceIndices() const { return selectedSliceIndices_; }
 
+  /** Clear any slice selection (used on reset). */
+  void clearSelection() { selectedSliceIndices_.clear(); repaint(); }
+
 private:
   /** Given mouse x in component coords, return slice index under cursor or -1. */
   int sliceIndexAt(float x) const;

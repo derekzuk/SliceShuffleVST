@@ -3,7 +3,6 @@
 namespace {
 constexpr const char* kBpmId = "bpm";
 constexpr const char* kGranularityId = "granularity";
-constexpr const char* kSeedId = "seed";
 constexpr const char* kWindowBeatsId = "windowBeats";
 constexpr const char* kWindowPositionId = "windowPosition";
 } // namespace
@@ -18,13 +17,12 @@ ControlPanel::ControlPanel(SlicerPluginProcessor& proc) : processor_(proc)
 
   granularityLabel_.setText("Granularity", juce::dontSendNotification);
   addAndMakeVisible(granularityLabel_);
-  granularityCombo_.addItem("1/2 beat", 1);
-  granularityCombo_.addItem("1 beat", 2);
-  granularityCombo_.addItem("2 beats", 3);
-  granularityCombo_.addItem("4 beats", 4);
-  granularityCombo_.addItem("8 beats", 5);
-  granularityCombo_.addItem("16 beats", 6);
-  granularityCombo_.setSelectedId(2);
+  granularityCombo_.addItem("1/4 beat", 1);
+  granularityCombo_.addItem("1/2 beat", 2);
+  granularityCombo_.addItem("1 beat", 3);
+  granularityCombo_.addItem("2 beats", 4);
+  granularityCombo_.addItem("4 beats", 5);
+  granularityCombo_.setSelectedId(3); // "1 beat"
   addAndMakeVisible(granularityCombo_);
 
   windowLabel_.setText("Window Size", juce::dontSendNotification);

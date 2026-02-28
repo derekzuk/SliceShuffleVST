@@ -1,6 +1,7 @@
 #include "WaveformOverview.h"
 #include <cmath>
 #include <vector>
+#include <algorithm>
 
 namespace {
 constexpr const char* kWindowBeatsId = "windowBeats";
@@ -10,6 +11,27 @@ constexpr const char* kWindowPositionId = "windowPosition";
 WaveformOverview::WaveformOverview(SlicerPluginProcessor& proc) : processor_(proc)
 {
   setOpaque(true);
+}
+
+void WaveformOverview::resized()
+{
+  ensureEnvelopeBuilt();
+}
+
+void WaveformOverview::ensureEnvelopeBuilt()
+{
+  auto state = processor_.getPreparedState();
+  if (!state || state->lengthInSamples == 0)
+  {
+    envelopeReady_.store(false);
+    return;
+  }
+  const int w = getWidth();
+  if (w <= 0)
+    return;
+  const juce::int64 len = state->lengthInSamples;
+  if (!envelopeReady_.load() || cachedWidth_ != w || cachedLengthInSamples_ != len)
+    rebuildEnvelopeAsync();
 }
 
 float WaveformOverview::sampleToX(juce::int64 sample, juce::int64 totalSamples, float width) const
@@ -30,7 +52,8 @@ juce::int64 WaveformOverview::xToSample(float x, juce::int64 totalSamples, float
 
 int WaveformOverview::hitTestWindow(float x, float windowStartX, float windowEndX) const
 {
-  if (x < windowStartX - kEdgeHitWidthPx)
+  const float margin = kEdgeHitWidthPx * 1.5f;
+  if (x < windowStartX - margin)
     return -2;
   if (x < windowStartX + kEdgeHitWidthPx)
     return -1;
@@ -38,6 +61,8 @@ int WaveformOverview::hitTestWindow(float x, float windowStartX, float windowEnd
     return 0;
   if (x <= windowEndX + kEdgeHitWidthPx)
     return 1;
+  if (x <= windowEndX + margin)
+    return 0;
   return -2;
 }
 
@@ -62,7 +87,83 @@ void WaveformOverview::setWindowFromSliceRange(size_t startSliceIdx, size_t endS
   startSliceIdx = juce::jmin(startSliceIdx, maxStart);
   const float posNorm = (maxStart > 0) ? (static_cast<float>(startSliceIdx) / static_cast<float>(maxStart)) : 0.0f;
 
-  apvts.getParameterAsValue(kWindowPositionId).setValue(static_cast<double>(posNorm));
+  if (auto* param = apvts.getParameter(kWindowPositionId))
+    param->setValueNotifyingHost(posNorm);
+  else
+    apvts.getParameterAsValue(kWindowPositionId).setValue(static_cast<double>(posNorm));
+}
+
+void WaveformOverview::rebuildEnvelopeAsync()
+{
+  auto state = processor_.getPreparedState();
+  if (!state || state->lengthInSamples == 0)
+    return;
+  const int w = getWidth();
+  if (w <= 0)
+    return;
+
+  const uint64_t jobId = ++envelopeJobId_;
+  const juce::int64 totalSamples = state->lengthInSamples;
+  const int numChannels = state->buffer.getNumChannels();
+  const int numSamples = state->buffer.getNumSamples();
+  juce::AudioBuffer<float> bufferCopy(numChannels, numSamples);
+  for (int ch = 0; ch < numChannels; ++ch)
+    bufferCopy.copyFrom(ch, 0, state->buffer, ch, 0, numSamples);
+
+  envelopePool_.addJob([this, jobId, w, totalSamples, numChannels, numSamples, bufferCopy]() mutable
+  {
+    std::vector<float> maxPerCol(static_cast<size_t>(w), -1.0f);
+    std::vector<float> minPerCol(static_cast<size_t>(w), 1.0f);
+    const float width = static_cast<float>(w);
+    for (int x = 0; x < w; ++x)
+    {
+      const int lo = static_cast<int>((static_cast<float>(x) / width) * numSamples);
+      const int hi = juce::jmin(numSamples,
+                                static_cast<int>((static_cast<float>(x + 1) / width) * numSamples) + 1);
+      if (hi <= lo)
+        continue;
+      float mx = -1.0f;
+      float mn = 1.0f;
+      for (int ch = 0; ch < numChannels; ++ch)
+      {
+        const float* data = bufferCopy.getReadPointer(ch);
+        for (int i = lo; i < hi; ++i)
+        {
+          const float s = data[i];
+          if (s > mx) mx = s;
+          if (s < mn) mn = s;
+        }
+      }
+      maxPerCol[static_cast<size_t>(x)] = mx;
+      minPerCol[static_cast<size_t>(x)] = mn;
+    }
+
+    juce::MessageManager::callAsync([this, jobId, w, totalSamples,
+                                     maxOut = std::move(maxPerCol),
+                                     minOut = std::move(minPerCol)]()
+    {
+      if (jobId != envelopeJobId_.load())
+        return;
+      maxPerCol_ = std::move(maxOut);
+      minPerCol_ = std::move(minOut);
+      cachedWidth_ = w;
+      cachedLengthInSamples_ = totalSamples;
+      envelopeReady_.store(true);
+      repaint();
+    });
+  });
+}
+
+size_t WaveformOverview::sampleToSliceIndexBinary(juce::int64 sample) const
+{
+  if (sliceEnds_.empty())
+    return 0;
+  auto it = std::upper_bound(sliceEnds_.begin(), sliceEnds_.end(), sample);
+  if (it == sliceEnds_.begin())
+    return 0;
+  if (it == sliceEnds_.end())
+    return sliceEnds_.size() - 1;
+  return static_cast<size_t>(std::distance(sliceEnds_.begin(), it) - 1);
 }
 
 void WaveformOverview::paint(juce::Graphics& g)
@@ -82,56 +183,57 @@ void WaveformOverview::paint(juce::Graphics& g)
   const float width = bounds.getWidth();
   const float height = bounds.getHeight();
   const juce::int64 totalSamples = state->lengthInSamples;
-  const int numChannels = state->buffer.getNumChannels();
-  const int numSamples = state->buffer.getNumSamples();
 
-  if (numSamples <= 0)
+  if (!envelopeReady_.load() || maxPerCol_.empty() || static_cast<int>(maxPerCol_.size()) != getWidth())
+  {
+    g.setColour(juce::Colours::grey);
+    g.setFont(11.0f);
+    g.drawText("Loading…", getLocalBounds(), juce::Justification::centred);
+    // Still draw window overlay if we have drag state
+    if (dragWindowStartSample_ >= 0 && dragWindowEndSample_ > dragWindowStartSample_ && totalSamples > 0)
+    {
+      const float startX = sampleToX(dragWindowStartSample_, totalSamples, width);
+      const float endX = sampleToX(dragWindowEndSample_, totalSamples, width);
+      const float ww = std::max(2.0f, endX - startX);
+      g.setColour(juce::Colour(0x3800aaff));
+      g.fillRect(startX, 0.0f, ww, height);
+      g.setColour(juce::Colour(0xc00080ff));
+      g.drawVerticalLine(static_cast<int>(startX), 0.0f, height);
+      g.drawVerticalLine(static_cast<int>(endX), 0.0f, height);
+    }
     return;
+  }
 
-  // Full-length waveform (min/max envelope)
-  g.setColour(juce::Colour(0xff404060));
   const float scale = height * 0.45f;
   const float midY = height * 0.5f;
   const int w = static_cast<int>(width);
-  std::vector<float> maxPerCol(static_cast<size_t>(w), -1.0f);
-  std::vector<float> minPerCol(static_cast<size_t>(w), 1.0f);
-  for (int x = 0; x < w; ++x)
-  {
-    const int lo = static_cast<int>((static_cast<float>(x) / width) * numSamples);
-    const int hi = juce::jmin(numSamples,
-                              static_cast<int>((static_cast<float>(x + 1) / width) * numSamples) + 1);
-    if (hi <= lo)
-      continue;
-    float mx = -1.0f;
-    float mn = 1.0f;
-    for (int ch = 0; ch < numChannels; ++ch)
-    {
-      const float* data = state->buffer.getReadPointer(ch);
-      for (int i = lo; i < hi; ++i)
-      {
-        const float s = data[i];
-        if (s > mx)
-          mx = s;
-        if (s < mn)
-          mn = s;
-      }
-    }
-    maxPerCol[static_cast<size_t>(x)] = mx;
-    minPerCol[static_cast<size_t>(x)] = mn;
-  }
+
   juce::Path p;
   p.startNewSubPath(0.0f, midY);
   for (int x = 0; x < w; ++x)
     p.lineTo(static_cast<float>(x),
-             juce::jlimit(0.0f, height, midY - maxPerCol[static_cast<size_t>(x)] * scale));
+             juce::jlimit(0.0f, height, midY - maxPerCol_[static_cast<size_t>(x)] * scale));
   for (int x = w - 1; x >= 0; --x)
     p.lineTo(static_cast<float>(x),
-             juce::jlimit(0.0f, height, midY - minPerCol[static_cast<size_t>(x)] * scale));
+             juce::jlimit(0.0f, height, midY - minPerCol_[static_cast<size_t>(x)] * scale));
   p.closeSubPath();
+  g.setColour(juce::Colour(0xff404060));
   g.fillPath(p);
 
-  // Current window overlay
-  auto [startSample, endSample] = processor_.getWindowRangeSnappedToSlices();
+  // Window overlay: during drag use local sample range; otherwise use APVTS (snapped)
+  juce::int64 startSample = 0;
+  juce::int64 endSample = 0;
+  if (dragWindowStartSample_ >= 0 && dragWindowEndSample_ > dragWindowStartSample_)
+  {
+    startSample = dragWindowStartSample_;
+    endSample = dragWindowEndSample_;
+  }
+  else
+  {
+    auto range = processor_.getWindowRangeSnappedToSlices();
+    startSample = range.first;
+    endSample = range.second;
+  }
   if (endSample > startSample && totalSamples > 0)
   {
     const float startX = sampleToX(startSample, totalSamples, width);
@@ -162,36 +264,64 @@ void WaveformOverview::mouseDown(const juce::MouseEvent& e)
   dragStartX_ = x;
   dragStartSampleStart_ = startSample;
   dragStartSampleEnd_ = endSample;
+  dragWindowStartSample_ = -1;
+  dragWindowEndSample_ = -1;
+
+  // Precompute slice end samples for binary search during drag
+  sliceEnds_.clear();
+  const std::vector<slicer::Slice>& slices = state->slices;
+  sliceEnds_.reserve(slices.size());
+  for (const auto& sl : slices)
+    sliceEnds_.push_back(static_cast<juce::int64>(sl.startSample + sl.lengthSamples));
+
+  if (dragHit_ == -2)
+  {
+    // Click in empty area: move window to this spot (center window on click)
+    const juce::int64 windowLen = endSample - startSample;
+    if (windowLen > 0 && !sliceEnds_.empty())
+    {
+      const juce::int64 centerSample = xToSample(x, totalSamples, width);
+      const juce::int64 maxStart = totalSamples - windowLen;
+      const juce::int64 newStart = juce::jlimit(juce::int64(0), juce::jmax(juce::int64(0), maxStart),
+                                                centerSample - windowLen / 2);
+      const size_t si = sampleToSliceIndexBinary(newStart);
+      size_t ei = sampleToSliceIndexBinary(newStart + windowLen - 1);
+      if (ei < si)
+        ei = si;
+      ei += 1;
+      setWindowFromSliceRange(si, ei);
+      auto newRange = processor_.getWindowRangeSnappedToSlices();
+      dragStartSampleStart_ = newRange.first;
+      dragStartSampleEnd_ = newRange.second;
+      repaint();
+    }
+    e.source.enableUnboundedMouseMovement(true); // allow dragging window to cursor past bounds
+    return;
+  }
+
+  if (dragHit_ != -2)
+  {
+    if (auto* param = processor_.getValueTreeState().getParameter(kWindowPositionId))
+      param->beginChangeGesture();
+    e.source.enableUnboundedMouseMovement(true);
+  }
+  else
+    e.source.enableUnboundedMouseMovement(true); // allow dragging window to cursor past bounds
 }
 
 void WaveformOverview::mouseDrag(const juce::MouseEvent& e)
 {
   auto state = processor_.getPreparedState();
-  if (!state || state->slices.empty() || state->lengthInSamples <= 0)
+  if (!state || state->lengthInSamples <= 0)
     return;
 
   const float width = static_cast<float>(getWidth());
   const juce::int64 totalSamples = state->lengthInSamples;
   const float x = static_cast<float>(e.getPosition().getX());
-  const std::vector<slicer::Slice>& slices = state->slices;
-  const size_t numSlices = slices.size();
 
-  auto sampleToSliceIndex = [&](juce::int64 sample) -> size_t
-  {
-    if (sample <= 0)
-      return 0;
-    for (size_t i = 0; i < numSlices; ++i)
-    {
-      const juce::int64 end = static_cast<juce::int64>(slices[i].startSample + slices[i].lengthSamples);
-      if (sample < end)
-        return i;
-    }
-    return numSlices > 0 ? numSlices - 1 : 0;
-  };
-
+  // Update local window in sample space (continuous, no snap); commit to APVTS only on mouseUp
   if (dragHit_ == 0)
   {
-    // Move window: keep same length, change position
     const float dx = x - dragStartX_;
     const float samplePerPx = totalSamples / juce::jmax(1.0f, width);
     const juce::int64 deltaSample = static_cast<juce::int64>(dx * samplePerPx);
@@ -201,56 +331,110 @@ void WaveformOverview::mouseDrag(const juce::MouseEvent& e)
     newEnd = juce::jlimit(juce::int64(0), totalSamples, newEnd);
     if (newEnd <= newStart)
       newEnd = juce::jmin(totalSamples, newStart + (dragStartSampleEnd_ - dragStartSampleStart_));
-    size_t si = sampleToSliceIndex(newStart);
-    size_t ei = sampleToSliceIndex(newEnd - 1);
-    if (ei < si)
-      ei = si;
-    ei += 1; // exclusive end
-    setWindowFromSliceRange(si, ei);
+    dragWindowStartSample_ = newStart;
+    dragWindowEndSample_ = newEnd;
   }
   else if (dragHit_ == -1)
   {
-    // Resize left edge
     juce::int64 newStart = xToSample(x, totalSamples, width);
     newStart = juce::jlimit(juce::int64(0), dragStartSampleEnd_ - 1, newStart);
-    size_t si = sampleToSliceIndex(newStart);
-    size_t ei = sampleToSliceIndex(dragStartSampleEnd_ - 1);
-    if (ei < si)
-      ei = si;
-    ei += 1;
-    setWindowFromSliceRange(si, ei);
+    dragWindowStartSample_ = newStart;
+    dragWindowEndSample_ = dragStartSampleEnd_;
   }
   else if (dragHit_ == 1)
   {
-    // Resize right edge
     juce::int64 newEnd = xToSample(x, totalSamples, width);
     newEnd = juce::jlimit(dragStartSampleStart_ + 1, totalSamples, newEnd);
-    size_t si = sampleToSliceIndex(dragStartSampleStart_);
-    size_t ei = sampleToSliceIndex(newEnd - 1);
-    if (ei < si)
-      ei = si;
-    ei += 1;
-    setWindowFromSliceRange(si, ei);
+    dragWindowStartSample_ = dragStartSampleStart_;
+    dragWindowEndSample_ = newEnd;
   }
   else
   {
-    // Drag from empty area: set window to dragged range
-    juce::int64 a = xToSample(juce::jmin(x, dragStartX_), totalSamples, width);
-    juce::int64 b = xToSample(juce::jmax(x, dragStartX_), totalSamples, width);
-    if (b <= a)
-      b = juce::jmin(totalSamples, a + 1);
-    size_t si = sampleToSliceIndex(a);
-    size_t ei = sampleToSliceIndex(b - 1);
-    if (ei < si)
-      ei = si;
-    ei += 1;
-    setWindowFromSliceRange(si, ei);
+    // Empty-area drag: move the window to follow the cursor (same size, center on cursor)
+    const juce::int64 windowLen = dragStartSampleEnd_ - dragStartSampleStart_;
+    if (windowLen <= 0)
+      return;
+    const juce::int64 centerSample = xToSample(x, totalSamples, width);
+    const juce::int64 maxStart = totalSamples - windowLen;
+    juce::int64 newStart = juce::jlimit(juce::int64(0), juce::jmax(juce::int64(0), maxStart),
+                                       centerSample - windowLen / 2);
+    dragWindowStartSample_ = newStart;
+    dragWindowEndSample_ = newStart + windowLen;
   }
 
   repaint();
 }
 
-void WaveformOverview::mouseUp(const juce::MouseEvent&)
+void WaveformOverview::mouseUp(const juce::MouseEvent& e)
 {
+  e.source.enableUnboundedMouseMovement(false);
+
+  const bool hadDragHit = (dragHit_ != -2);
+
+  if (hadDragHit)
+  {
+    auto state = processor_.getPreparedState();
+    if (state && !state->slices.empty() && state->lengthInSamples > 0 &&
+        dragWindowStartSample_ >= 0 && dragWindowEndSample_ > dragWindowStartSample_)
+    {
+      // Snap to slice boundaries only on release
+      size_t si = sampleToSliceIndexBinary(dragWindowStartSample_);
+      size_t ei = sampleToSliceIndexBinary(dragWindowEndSample_ - 1);
+      if (ei < si)
+        ei = si;
+      ei += 1;
+      setWindowFromSliceRange(si, ei);
+    }
+
+    if (auto* param = processor_.getValueTreeState().getParameter(kWindowPositionId))
+      param->endChangeGesture();
+  }
+  else
+  {
+    // Dragged in empty area: still commit window if we set a range
+    auto state = processor_.getPreparedState();
+    if (state && !state->slices.empty() && state->lengthInSamples > 0 &&
+        dragWindowStartSample_ >= 0 && dragWindowEndSample_ > dragWindowStartSample_)
+    {
+      if (auto* param = processor_.getValueTreeState().getParameter(kWindowPositionId))
+        param->beginChangeGesture();
+      size_t si = sampleToSliceIndexBinary(dragWindowStartSample_);
+      size_t ei = sampleToSliceIndexBinary(dragWindowEndSample_ - 1);
+      if (ei < si)
+        ei = si;
+      ei += 1;
+      setWindowFromSliceRange(si, ei);
+      if (auto* p = processor_.getValueTreeState().getParameter(kWindowPositionId))
+        p->endChangeGesture();
+    }
+  }
+
   dragHit_ = -2;
+  dragWindowStartSample_ = -1;
+  dragWindowEndSample_ = -1;
+}
+
+void WaveformOverview::mouseMove(const juce::MouseEvent& e)
+{
+  auto state = processor_.getPreparedState();
+  if (!state || state->lengthInSamples == 0)
+  {
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    return;
+  }
+  const float width = static_cast<float>(getWidth());
+  const juce::int64 totalSamples = state->lengthInSamples;
+  auto [startSample, endSample] = processor_.getWindowRangeSnappedToSlices();
+  const float startX = sampleToX(startSample, totalSamples, width);
+  const float endX = sampleToX(endSample, totalSamples, width);
+  const float x = static_cast<float>(e.getPosition().getX());
+  const int hit = hitTestWindow(x, startX, endX);
+  if (hit == -1)
+    setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+  else if (hit == 1)
+    setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+  else if (hit == 0)
+    setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+  else
+    setMouseCursor(juce::MouseCursor::NormalCursor);
 }

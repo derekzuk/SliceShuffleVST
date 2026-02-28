@@ -122,6 +122,7 @@ void SlicerPluginEditor::resized()
 void SlicerPluginEditor::timerCallback()
 {
   topBar_.refresh();
+  waveformOverview_.ensureEnvelopeBuilt();
   waveformOverview_.repaint();
   waveformView_.refresh();
   previewButton_.setButtonText(processorRef.isPreviewActive() ? "Stop" : "Preview");

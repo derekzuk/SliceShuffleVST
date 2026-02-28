@@ -83,6 +83,12 @@ cmake -G "Ninja" -B build
 
 - **Plugin:** Load `CutShuffle.vst3` in FL Studio (or any VST3 host). Path: `build/src/CutShufflePlugin_artefacts/VST3/CutShuffle.vst3`
 
+  Install to system VST3 folder (macOS) so your DAW picks it up:
+
+  ```bash
+  sudo cp -R build/src/CutShufflePlugin_artefacts/VST3/CutShuffle.vst3 /Library/Audio/Plug-Ins/VST3/
+  ```
+
 ## Roadmap
 
 1. **CLI:** Implement WAV load → slice by BPM (using `CutShuffleEngine`) → shuffle → write WAV.

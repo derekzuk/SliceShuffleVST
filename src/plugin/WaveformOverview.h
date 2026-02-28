@@ -10,7 +10,7 @@
 class WaveformOverview : public juce::Component
 {
 public:
-  explicit WaveformOverview(SlicerPluginProcessor& proc);
+  explicit WaveformOverview(CutShufflePluginProcessor& proc);
 
   void paint(juce::Graphics&) override;
   void resized() override;
@@ -40,7 +40,7 @@ private:
   static constexpr int kMinWindowSlices = 4;
   static constexpr int kMaxWindowSlices = 64;
 
-  SlicerPluginProcessor& processor_;
+  CutShufflePluginProcessor& processor_;
   juce::ThreadPool envelopePool_{1};
 
   // Cached envelope (built async)

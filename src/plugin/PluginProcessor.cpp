@@ -1,7 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "../cli/WavLoader.h"
-#include "../dsp/SlicerEngine.h"
+#include "../dsp/CutShuffleEngine.h"
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -31,7 +31,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
       juce::NormalisableRange<float>(40.f, 240.f, 0.1f, 1.f), 120.f));
   layout.add(std::make_unique<juce::AudioParameterChoice>(
       juce::ParameterID{kGranularityId, 1}, "Granularity",
-      juce::StringArray{"1/4", "1/2", "1", "2", "4"}, 2)); // index 2 = "1" beat default
+      juce::StringArray{"1/4", "1/2", "1", "2", "4"}, 1)); // index 1 = "1/2" beat default
   layout.add(std::make_unique<juce::AudioParameterInt>(
       juce::ParameterID{kSeedId, 1}, "Seed", 0, 999999, 0));
   // Window = number of slices (min 4); we use even count only (4, 6, 8, …)
@@ -44,98 +44,98 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 }
 } // namespace
 
-SlicerPluginProcessor::SlicerPluginProcessor()
+CutShufflePluginProcessor::CutShufflePluginProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
   : AudioProcessor(
         BusesProperties()
             .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-    apvts(*this, nullptr, "SlicerParams", createParameterLayout())
+    apvts(*this, nullptr, "CutShuffleParams", createParameterLayout())
 #endif
 {
 #ifdef JucePlugin_PreferredChannelConfigurations
-  apvts = juce::AudioProcessorValueTreeState(*this, nullptr, "SlicerParams", createParameterLayout());
+  apvts = juce::AudioProcessorValueTreeState(*this, nullptr, "CutShuffleParams", createParameterLayout());
 #endif
   voices_.resize(kMaxVoices);
 }
 
-SlicerPluginProcessor::~SlicerPluginProcessor() = default;
+CutShufflePluginProcessor::~CutShufflePluginProcessor() = default;
 
-const juce::String SlicerPluginProcessor::getName() const { return JucePlugin_Name; }
+const juce::String CutShufflePluginProcessor::getName() const { return JucePlugin_Name; }
 
-bool SlicerPluginProcessor::acceptsMidi() const { return true; }
-bool SlicerPluginProcessor::producesMidi() const { return false; }
-bool SlicerPluginProcessor::isMidiEffect() const { return false; }
-double SlicerPluginProcessor::getTailLengthSeconds() const { return 0.0; }
+bool CutShufflePluginProcessor::acceptsMidi() const { return true; }
+bool CutShufflePluginProcessor::producesMidi() const { return false; }
+bool CutShufflePluginProcessor::isMidiEffect() const { return false; }
+double CutShufflePluginProcessor::getTailLengthSeconds() const { return 0.0; }
 
-int SlicerPluginProcessor::getNumPrograms() { return 1; }
-int SlicerPluginProcessor::getCurrentProgram() { return 0; }
-void SlicerPluginProcessor::setCurrentProgram(int) {}
-const juce::String SlicerPluginProcessor::getProgramName(int) { return {}; }
-void SlicerPluginProcessor::changeProgramName(int, const juce::String&) {}
+int CutShufflePluginProcessor::getNumPrograms() { return 1; }
+int CutShufflePluginProcessor::getCurrentProgram() { return 0; }
+void CutShufflePluginProcessor::setCurrentProgram(int) {}
+const juce::String CutShufflePluginProcessor::getProgramName(int) { return {}; }
+void CutShufflePluginProcessor::changeProgramName(int, const juce::String&) {}
 
-void SlicerPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+void CutShufflePluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
   hostSampleRate_ = sampleRate;
   hostBlockSize_ = samplesPerBlock;
 }
 
-void SlicerPluginProcessor::releaseResources() {}
+void CutShufflePluginProcessor::releaseResources() {}
 
 #ifndef JucePlugin_PreferredChannelConfigurations
-bool SlicerPluginProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+bool CutShufflePluginProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
   return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::mono()
       || layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
 }
 #endif
 
-std::shared_ptr<const PreparedState> SlicerPluginProcessor::getPreparedState() const
+std::shared_ptr<const PreparedState> CutShufflePluginProcessor::getPreparedState() const
 {
   std::lock_guard lock(preparedStateMutex_);
   return preparedState_;
 }
 
-SlicerPluginProcessor::LoadStatus SlicerPluginProcessor::getLoadStatus() const
+CutShufflePluginProcessor::LoadStatus CutShufflePluginProcessor::getLoadStatus() const
 {
   return loadStatus_.load();
 }
 
-juce::String SlicerPluginProcessor::getLoadedSampleDisplayName() const
+juce::String CutShufflePluginProcessor::getLoadedSampleDisplayName() const
 {
   std::shared_lock lock(stateMutex_);
   return loadedSampleDisplayName_;
 }
 
-juce::String SlicerPluginProcessor::getLoadedSamplePath() const
+juce::String CutShufflePluginProcessor::getLoadedSamplePath() const
 {
   std::shared_lock lock(stateMutex_);
   return loadedSamplePath_;
 }
 
-int SlicerPluginProcessor::getNumSlices() const
+int CutShufflePluginProcessor::getNumSlices() const
 {
   std::lock_guard lock(preparedStateMutex_);
   return preparedState_ ? static_cast<int>(preparedState_->slices.size()) : 0;
 }
 
-juce::String SlicerPluginProcessor::getLoadErrorText() const
+juce::String CutShufflePluginProcessor::getLoadErrorText() const
 {
   std::shared_lock lock(stateMutex_);
   return loadErrorText_;
 }
 
-void SlicerPluginProcessor::setLoadStatus(LoadStatus s)
+void CutShufflePluginProcessor::setLoadStatus(LoadStatus s)
 {
   loadStatus_.store(s);
 }
 
-void SlicerPluginProcessor::setLoadError(const juce::String& text)
+void CutShufflePluginProcessor::setLoadError(const juce::String& text)
 {
   std::unique_lock lock(stateMutex_);
   loadErrorText_ = text;
 }
 
-void SlicerPluginProcessor::applyNewPreparedState(std::shared_ptr<const PreparedState> state)
+void CutShufflePluginProcessor::applyNewPreparedState(std::shared_ptr<const PreparedState> state)
 {
   {
     std::lock_guard lock(preparedStateMutex_);
@@ -146,7 +146,7 @@ void SlicerPluginProcessor::applyNewPreparedState(std::shared_ptr<const Prepared
     setLoadError({});
 }
 
-void SlicerPluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float> buffer,
+void CutShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float> buffer,
                                                          double sampleRate,
                                                          const juce::String& displayName,
                                                          const juce::String& path,
@@ -156,7 +156,7 @@ void SlicerPluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float
   if (totalSamples == 0 || sampleRate <= 0)
     return;
 
-  slicer::SlicerEngine engine;
+  cutshuffle::CutShuffleEngine engine;
   engine.setBpm(static_cast<double>(*apvts.getRawParameterValue(kBpmId)));
   const int granIndex = juce::jlimit(
       0, kNumGranularityChoices - 1,
@@ -182,7 +182,7 @@ void SlicerPluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float
     }
     else
     {
-      order = slicer::SlicerEngine::shuffledSliceOrder(slices.size(), seed, true);
+      order = cutshuffle::CutShuffleEngine::shuffledSliceOrder(slices.size(), seed, true);
     }
   }
 
@@ -216,7 +216,7 @@ void SlicerPluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float
   applyNewPreparedState(std::move(state));
 }
 
-void SlicerPluginProcessor::loadSampleFromFile(const juce::File& file)
+void CutShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
 {
   if (!file.existsAsFile())
   {
@@ -267,7 +267,7 @@ void SlicerPluginProcessor::loadSampleFromFile(const juce::File& file)
   });
 }
 
-void SlicerPluginProcessor::clearSample()
+void CutShufflePluginProcessor::clearSample()
 {
   ++loadJobId_;
   {
@@ -285,7 +285,7 @@ void SlicerPluginProcessor::clearSample()
     v.active = false;
 }
 
-void SlicerPluginProcessor::regenerateSliceMap()
+void CutShufflePluginProcessor::regenerateSliceMap()
 {
   std::shared_ptr<const PreparedState> state;
   {
@@ -306,7 +306,7 @@ void SlicerPluginProcessor::regenerateSliceMap()
       juce::AudioBuffer<float>(state->buffer), state->sampleRate, displayName, path, true);
 }
 
-void SlicerPluginProcessor::rearrangeSample()
+void CutShufflePluginProcessor::rearrangeSample()
 {
   std::shared_ptr<const PreparedState> state;
   {
@@ -348,7 +348,7 @@ void SlicerPluginProcessor::rearrangeSample()
 
   const uint32_t seed = static_cast<uint32_t>(juce::Random::getSystemRandom().nextInt(1000000));
   const std::vector<size_t> order =
-      slicer::SlicerEngine::shuffledSliceOrder(physInWindow.size(), seed, true);
+      cutshuffle::CutShuffleEngine::shuffledSliceOrder(physInWindow.size(), seed, true);
 
   // Non-destructive: shuffle only the set of physical slices that belong to
   // the window, and only at the logical positions currently mapped to them.
@@ -369,7 +369,7 @@ void SlicerPluginProcessor::rearrangeSample()
   apvts.getParameterAsValue(kSeedId).setValue(static_cast<int>(seed));
 }
 
-std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
+std::vector<size_t> CutShufflePluginProcessor::moveSelectedSlicesInOrder(
     const std::unordered_set<size_t>& selectedPositions, int direction)
 {
   if (selectedPositions.empty() || (direction != -1 && direction != 1))
@@ -385,7 +385,7 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
 
   std::vector<size_t> order = state->playbackOrder;
   const size_t n = order.size();
-  const std::vector<slicer::Slice>& slices = state->slices;
+  const std::vector<cutshuffle::Slice>& slices = state->slices;
 
   // selectedPositions = the visual positions (slice indices) the user clicked
   std::vector<size_t> positions;
@@ -460,7 +460,7 @@ std::vector<size_t> SlicerPluginProcessor::moveSelectedSlicesInOrder(
   return order;
 }
 
-std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnappedToSlices() const
+std::pair<juce::int64, juce::int64> CutShufflePluginProcessor::getWindowRangeSnappedToSlices() const
 {
   auto state = getPreparedState();
   if (!state)
@@ -468,14 +468,14 @@ std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnapped
   return getWindowRangeSnappedToSlices(*state);
 }
 
-std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnappedToSlices(
+std::pair<juce::int64, juce::int64> CutShufflePluginProcessor::getWindowRangeSnappedToSlices(
     const PreparedState& state) const
 {
   const juce::int64 totalSamples = state.lengthInSamples;
   if (totalSamples <= 0)
     return {0, 0};
 
-  const std::vector<slicer::Slice>& slices = state.slices;
+  const std::vector<cutshuffle::Slice>& slices = state.slices;
   if (slices.empty())
     return {0, totalSamples};
 
@@ -493,15 +493,15 @@ std::pair<juce::int64, juce::int64> SlicerPluginProcessor::getWindowRangeSnapped
       maxStart,
       static_cast<size_t>(std::round(static_cast<double>(posNorm) * static_cast<double>(maxStart))));
 
-  const slicer::Slice& first = slices[startIdx];
-  const slicer::Slice& last = slices[startIdx + windowSlices - 1];
+  const cutshuffle::Slice& first = slices[startIdx];
+  const cutshuffle::Slice& last = slices[startIdx + windowSlices - 1];
   const juce::int64 startSnap = static_cast<juce::int64>(first.startSample);
   const juce::int64 endSnap = static_cast<juce::int64>(last.startSample) + static_cast<juce::int64>(last.lengthSamples);
 
   return {startSnap, juce::jmin(endSnap, totalSamples)};
 }
 
-void SlicerPluginProcessor::startPreview()
+void CutShufflePluginProcessor::startPreview()
 {
   std::shared_ptr<const PreparedState> state;
   {
@@ -530,17 +530,17 @@ void SlicerPluginProcessor::startPreview()
   previewActive_.store(true);
 }
 
-void SlicerPluginProcessor::stopPreview()
+void CutShufflePluginProcessor::stopPreview()
 {
   previewActive_.store(false);
 }
 
-bool SlicerPluginProcessor::isPreviewActive() const
+bool CutShufflePluginProcessor::isPreviewActive() const
 {
   return previewActive_.load();
 }
 
-void SlicerPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
   juce::ScopedNoDenormals noDenormals;
   buffer.clear();
@@ -664,7 +664,7 @@ void SlicerPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     if (!v.active || v.sliceIndex < 0 || v.sliceIndex >= static_cast<int>(state->slices.size()))
       continue;
 
-    const slicer::Slice& sl = state->slices[static_cast<size_t>(v.sliceIndex)];
+    const cutshuffle::Slice& sl = state->slices[static_cast<size_t>(v.sliceIndex)];
     const size_t sliceLen = sl.lengthSamples;
     const size_t start = sl.startSample;
 
@@ -688,31 +688,32 @@ void SlicerPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
   }
 }
 
-bool SlicerPluginProcessor::hasEditor() const { return true; }
-juce::AudioProcessorEditor* SlicerPluginProcessor::createEditor()
+bool CutShufflePluginProcessor::hasEditor() const { return true; }
+juce::AudioProcessorEditor* CutShufflePluginProcessor::createEditor()
 {
-  return new SlicerPluginEditor(*this);
+  return new CutShufflePluginEditor(*this);
 }
 
-void SlicerPluginProcessor::getStateInformation(juce::MemoryBlock& destData)
+void CutShufflePluginProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
   auto xml = createFullStateXml();
   if (xml)
     copyXmlToBinary(*xml, destData);
 }
 
-void SlicerPluginProcessor::setStateInformation(const void* data, int sizeInBytes)
+void CutShufflePluginProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
   std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
   if (xml)
   {
-    restoreStateFromXml(*xml);
+    // Session/host restore: restore params but do not auto-load the last sample.
+    restoreStateFromXml(*xml, false);
     // Reset waveform to identity order when restoring from memory (startup/session).
     resetArrangement();
   }
 }
 
-std::unique_ptr<juce::XmlElement> SlicerPluginProcessor::createFullStateXml() const
+std::unique_ptr<juce::XmlElement> CutShufflePluginProcessor::createFullStateXml() const
 {
   auto vt = const_cast<juce::AudioProcessorValueTreeState&>(apvts).copyState();
   std::unique_ptr<juce::XmlElement> xml(vt.createXml());
@@ -748,7 +749,7 @@ std::unique_ptr<juce::XmlElement> SlicerPluginProcessor::createFullStateXml() co
   return xml;
 }
 
-void SlicerPluginProcessor::restoreStateFromXml(const juce::XmlElement& xml)
+void CutShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xml, bool restoreSamplePath)
 {
   // Restore APVTS (all parameters)
   apvts.replaceState(juce::ValueTree::fromXml(xml));
@@ -774,7 +775,24 @@ void SlicerPluginProcessor::restoreStateFromXml(const juce::XmlElement& xml)
     }
   }
 
-  // Restore sample path and kick off async load (or mark Missing)
+  if (!restoreSamplePath)
+  {
+    // Session restore: start with no sample loaded, default window size and granularity.
+    clearSample();
+    if (auto* param = apvts.getParameter(kWindowBeatsId))
+    {
+      // Default window = 16 slices; normalized = (16 - 4) / (64 - 4)
+      param->setValueNotifyingHost(12.0f / 60.0f);
+    }
+    if (auto* param = apvts.getParameter(kGranularityId))
+    {
+      // Default granularity = 1/2 beat (index 1); range is 0..4
+      param->setValueNotifyingHost(1.0f / 4.0f); // normalized: index 1 of 5 = 1/4
+    }
+    return;
+  }
+
+  // Preset load: restore sample path and kick off async load (or mark Missing)
   const juce::String path = xml.getStringAttribute(kSamplePathAttr, {});
   if (path.isEmpty())
     return;
@@ -793,7 +811,7 @@ void SlicerPluginProcessor::restoreStateFromXml(const juce::XmlElement& xml)
   }
 }
 
-bool SlicerPluginProcessor::savePresetToFile(const juce::File& file) const
+bool CutShufflePluginProcessor::savePresetToFile(const juce::File& file) const
 {
   auto xml = createFullStateXml();
   if (!xml)
@@ -809,7 +827,7 @@ bool SlicerPluginProcessor::savePresetToFile(const juce::File& file) const
   return true;
 }
 
-bool SlicerPluginProcessor::loadPresetFromFile(const juce::File& file)
+bool CutShufflePluginProcessor::loadPresetFromFile(const juce::File& file)
 {
   if (!file.existsAsFile())
     return false;
@@ -820,12 +838,12 @@ bool SlicerPluginProcessor::loadPresetFromFile(const juce::File& file)
     return false;
 
   loadingPreset_.store(true);
-  restoreStateFromXml(*xml);
+  restoreStateFromXml(*xml, true);
   loadingPreset_.store(false);
   return true;
 }
 
-void SlicerPluginProcessor::resetArrangement()
+void CutShufflePluginProcessor::resetArrangement()
 {
   std::shared_ptr<const PreparedState> state;
   {
@@ -845,13 +863,13 @@ void SlicerPluginProcessor::resetArrangement()
   applyNewPreparedState(std::move(newState));
 }
 
-std::pair<size_t, size_t> SlicerPluginProcessor::getWindowSliceRange(const PreparedState& state) const
+std::pair<size_t, size_t> CutShufflePluginProcessor::getWindowSliceRange(const PreparedState& state) const
 {
   auto [startSample, endSample] = getWindowRangeSnappedToSlices(state);
   if (endSample <= startSample)
     return {0, 0};
 
-  const std::vector<slicer::Slice>& slices = state.slices;
+  const std::vector<cutshuffle::Slice>& slices = state.slices;
   const size_t numSlices = slices.size();
   size_t firstSlice = numSlices;
   size_t lastSlice = 0;
@@ -872,7 +890,7 @@ std::pair<size_t, size_t> SlicerPluginProcessor::getWindowSliceRange(const Prepa
   return {firstSlice, lastSlice + 1}; // [start, end)
 }
 
-void SlicerPluginProcessor::renderWindowToBuffer(const PreparedState& state,
+void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
                                                  juce::AudioBuffer<float>& out) const
 {
   const auto [physStart, physEnd] = getWindowSliceRange(state);
@@ -937,5 +955,5 @@ void SlicerPluginProcessor::renderWindowToBuffer(const PreparedState& state,
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-  return static_cast<juce::AudioProcessor*>(new SlicerPluginProcessor());
+  return static_cast<juce::AudioProcessor*>(new CutShufflePluginProcessor());
 }

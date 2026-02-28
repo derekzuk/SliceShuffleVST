@@ -1,7 +1,7 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
-#include "SlicerEngine.h"
+#include "CutShuffleEngine.h"
 #include <vector>
 
 /**
@@ -11,7 +11,7 @@
  */
 void renderSliced(juce::AudioBuffer<float>& out,
                   const juce::AudioBuffer<float>& source,
-                  const std::vector<slicer::Slice>& slices,
+                  const std::vector<cutshuffle::Slice>& slices,
                   const std::vector<size_t>& order,
                   double sampleRate,
                   double crossfadeMs = 5.0);

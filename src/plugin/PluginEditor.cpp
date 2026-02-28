@@ -2,10 +2,10 @@
 #include "../cli/WavWriter.h"
 
 namespace {
-const juce::Identifier kSlicerExportDragType("slicer-export");
+const juce::Identifier kCutShuffleExportDragType("cutshuffle-export");
 } // namespace
 
-SlicerPluginEditor::SlicerPluginEditor(SlicerPluginProcessor& p)
+CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
   : AudioProcessorEditor(&p), processorRef(p), topBar_(p), waveformOverview_(p), waveformView_(p), controlPanel_(p)
 {
   addAndMakeVisible(topBar_);
@@ -80,19 +80,19 @@ SlicerPluginEditor::SlicerPluginEditor(SlicerPluginProcessor& p)
   setSize(720, 420);
 }
 
-SlicerPluginEditor::~SlicerPluginEditor()
+CutShufflePluginEditor::~CutShufflePluginEditor()
 {
   processorRef.getValueTreeState().removeParameterListener("bpm", this);
   processorRef.getValueTreeState().removeParameterListener("granularity", this);
   stopTimer();
 }
 
-void SlicerPluginEditor::paint(juce::Graphics& g)
+void CutShufflePluginEditor::paint(juce::Graphics& g)
 {
   g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 }
 
-void SlicerPluginEditor::resized()
+void CutShufflePluginEditor::resized()
 {
   auto r = getLocalBounds().reduced(4);
   const int topH = 36;
@@ -119,7 +119,7 @@ void SlicerPluginEditor::resized()
   waveformView_.setBounds(r);
 }
 
-void SlicerPluginEditor::timerCallback()
+void CutShufflePluginEditor::timerCallback()
 {
   topBar_.refresh();
   waveformOverview_.ensureEnvelopeBuilt();
@@ -134,7 +134,7 @@ void SlicerPluginEditor::timerCallback()
   }
 }
 
-void SlicerPluginEditor::parameterChanged(const juce::String& id, float)
+void CutShufflePluginEditor::parameterChanged(const juce::String& id, float)
 {
   if (id == "bpm")
   {
@@ -183,12 +183,12 @@ void SlicerPluginEditor::parameterChanged(const juce::String& id, float)
   }
 }
 
-void SlicerPluginEditor::scheduleRegenerateSliceMap()
+void CutShufflePluginEditor::scheduleRegenerateSliceMap()
 {
   regenerateScheduledAt_ = juce::Time::getMillisecondCounter() + 150;
 }
 
-bool SlicerPluginEditor::writeWindowToWavFile(const juce::File& file) const
+bool CutShufflePluginEditor::writeWindowToWavFile(const juce::File& file) const
 {
   auto state = processorRef.getPreparedState();
   if (!state || state->buffer.getNumSamples() == 0 || state->sampleRate <= 0)
@@ -200,15 +200,15 @@ bool SlicerPluginEditor::writeWindowToWavFile(const juce::File& file) const
   return writeWav(file, windowBuffer, state->sampleRate);
 }
 
-bool SlicerPluginEditor::shouldDropFilesWhenDraggedExternally(
+bool CutShufflePluginEditor::shouldDropFilesWhenDraggedExternally(
     const juce::DragAndDropTarget::SourceDetails& sourceDetails,
     juce::StringArray& files,
     bool& canMoveFiles)
 {
-  if (sourceDetails.description != juce::var(kSlicerExportDragType.toString()))
+  if (sourceDetails.description != juce::var(kCutShuffleExportDragType.toString()))
     return false;
   juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory);
-  juce::File outFile = tempDir.getChildFile("Slicer_export_" + juce::Uuid().toDashedString() + ".wav");
+  juce::File outFile = tempDir.getChildFile("CutShuffle_export_" + juce::Uuid().toDashedString() + ".wav");
   if (!writeWindowToWavFile(outFile))
     return false;
   files.add(outFile.getFullPathName());

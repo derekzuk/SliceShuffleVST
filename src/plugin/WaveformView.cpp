@@ -2,10 +2,10 @@
 #include <vector>
 
 namespace {
-constexpr const char* kSlicerExportDragType = "slicer-export";
+constexpr const char* kCutShuffleExportDragType = "cutshuffle-export";
 } // namespace
 
-WaveformView::WaveformView(SlicerPluginProcessor& proc) : processor_(proc)
+WaveformView::WaveformView(CutShufflePluginProcessor& proc) : processor_(proc)
 {
   formatManager_.registerBasicFormats();
   thumbnail_.addChangeListener(this);
@@ -218,7 +218,7 @@ void WaveformView::mouseDrag(const juce::MouseEvent& e)
   if (!container)
     return;
   dragStarted_ = true;
-  container->startDragging(juce::var(kSlicerExportDragType), this, juce::ScaledImage(), true);
+  container->startDragging(juce::var(kCutShuffleExportDragType), this, juce::ScaledImage(), true);
 }
 
 void WaveformView::changeListenerCallback(juce::ChangeBroadcaster*)

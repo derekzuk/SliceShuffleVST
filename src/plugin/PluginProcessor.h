@@ -9,13 +9,13 @@
 #include <unordered_set>
 #include <vector>
 
-class SlicerPluginProcessor : public juce::AudioProcessor
+class CutShufflePluginProcessor : public juce::AudioProcessor
 {
 public:
   enum class LoadStatus { Idle, Loading, Ready, Missing, Error };
 
-  SlicerPluginProcessor();
-  ~SlicerPluginProcessor() override;
+  CutShufflePluginProcessor();
+  ~CutShufflePluginProcessor() override;
 
   void prepareToPlay(double sampleRate, int samplesPerBlock) override;
   void releaseResources() override;
@@ -107,7 +107,7 @@ private:
                                     bool forceIdentityOrder = false);
 
   std::unique_ptr<juce::XmlElement> createFullStateXml() const;
-  void restoreStateFromXml(const juce::XmlElement& xml);
+  void restoreStateFromXml(const juce::XmlElement& xml, bool restoreSamplePath = false);
 
   // Helpers for non-destructive rearrange/preview.
   std::pair<size_t, size_t> getWindowSliceRange(const PreparedState& state) const;
@@ -155,5 +155,5 @@ private:
 
   std::atomic<bool> loadingPreset_{false};
 
-  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SlicerPluginProcessor)
+  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CutShufflePluginProcessor)
 };

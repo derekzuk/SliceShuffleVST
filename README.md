@@ -1,4 +1,4 @@
-# Slicer
+# CutShuffle
 
 BPM-based WAV slicer: slice a WAV on a BPM grid, rearrange slices randomly. Built with **JUCE** (CMake-first). Targets: **CLI** (offline) and **VST3** (e.g. FL Studio).
 
@@ -24,8 +24,8 @@ BPM-based WAV slicer: slice a WAV on a BPM grid, rearrange slices randomly. Buil
 ### 1. Clone with JUCE submodule
 
 ```bash
-git clone --recurse-submodules https://github.com/your-org/slicer.git
-cd slicer
+git clone --recurse-submodules https://github.com/your-org/cutshuffle.git
+cd cutshuffle
 ```
 
 If the repo is already cloned without submodules:
@@ -62,8 +62,8 @@ cmake -B build
 cmake --build build
 ```
 
-- **CLI:** `build/src/SlicerCli_artefacts/SlicerCli` (with Make/Ninja; Xcode/VS use `Debug/` or `Release/` under that).
-- **Plugin:** `build/SlicerPlugin_artefacts/Debug/VST3/Slicer.vst3` (or `Release/`).
+- **CLI:** `build/src/CutShuffleCli_artefacts/CutShuffleCli` (with Make/Ninja; Xcode/VS use `Debug/` or `Release/` under that).
+- **Plugin:** `build/CutShufflePlugin_artefacts/Debug/VST3/CutShuffle.vst3` (or `Release/`).
 
 Optional: use a generator explicitly:
 
@@ -75,14 +75,14 @@ cmake -G "Ninja" -B build
 ## Run
 
 - **CLI (stub):**  
-  `./build/src/SlicerCli_artefacts/SlicerCli input.wav output.wav --bpm 120`  
-  (Full usage to be implemented: `SlicerCli input.wav output.wav --bpm 120`.)
+  `./build/src/CutShuffleCli_artefacts/CutShuffleCli input.wav output.wav --bpm 120`  
+  (Full usage to be implemented: `CutShuffleCli input.wav output.wav --bpm 120`.)
 
-- **Plugin:** Load `Slicer.vst3` in FL Studio (or any VST3 host).
+- **Plugin:** Load `CutShuffle.vst3` in FL Studio (or any VST3 host).
 
 ## Roadmap
 
-1. **CLI:** Implement WAV load → slice by BPM (using `SlicerEngine`) → shuffle → write WAV.
+1. **CLI:** Implement WAV load → slice by BPM (using `CutShuffleEngine`) → shuffle → write WAV.
 2. **Plugin:** Use the same DSP in `processBlock` with preloaded buffer; no file I/O on the audio thread. Add **APVTS** and stable parameter IDs from day one for host compatibility.
 
 ## License

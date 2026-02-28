@@ -7,14 +7,14 @@
 #include "WaveformOverview.h"
 #include "ControlPanel.h"
 
-class SlicerPluginEditor : public juce::AudioProcessorEditor,
+class CutShufflePluginEditor : public juce::AudioProcessorEditor,
                            public juce::DragAndDropContainer,
                            private juce::Timer,
                            private juce::AudioProcessorValueTreeState::Listener
 {
 public:
-  explicit SlicerPluginEditor(SlicerPluginProcessor&);
-  ~SlicerPluginEditor() override;
+  explicit CutShufflePluginEditor(CutShufflePluginProcessor&);
+  ~CutShufflePluginEditor() override;
 
   void paint(juce::Graphics&) override;
   void resized() override;
@@ -32,7 +32,7 @@ private:
 
   void scheduleRegenerateSliceMap();
 
-  SlicerPluginProcessor& processorRef;
+  CutShufflePluginProcessor& processorRef;
   TopBarComponent topBar_;
   WaveformOverview waveformOverview_;
   WaveformView waveformView_;
@@ -43,6 +43,6 @@ private:
   juce::TextButton exportButton_;
   juce::File lastLoadedPath_;
   juce::int64 regenerateScheduledAt_{0};
-  int lastGranularityIndex_{2};  // 2 = "1 beat" (ComboBox selectedId 3, param value 2)
+  int lastGranularityIndex_{1};  // 1 = "1/2 beat" default
   bool revertingGranularity_{false};
 };

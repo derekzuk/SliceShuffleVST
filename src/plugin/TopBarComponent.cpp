@@ -1,6 +1,6 @@
 #include "TopBarComponent.h"
 
-TopBarComponent::TopBarComponent(SlicerPluginProcessor& proc) : processor_(proc)
+TopBarComponent::TopBarComponent(CutShufflePluginProcessor& proc) : processor_(proc)
 {
   loadButton_.setButtonText("Load Sample");
   addAndMakeVisible(loadButton_);
@@ -49,23 +49,23 @@ void TopBarComponent::refresh()
   juce::Colour statusColour;
   switch (status)
   {
-  case SlicerPluginProcessor::LoadStatus::Idle:
+  case CutShufflePluginProcessor::LoadStatus::Idle:
     statusText = "—";
     statusColour = juce::Colours::grey;
     break;
-  case SlicerPluginProcessor::LoadStatus::Loading:
+  case CutShufflePluginProcessor::LoadStatus::Loading:
     statusText = "Loading…";
     statusColour = juce::Colours::orange;
     break;
-  case SlicerPluginProcessor::LoadStatus::Ready:
+  case CutShufflePluginProcessor::LoadStatus::Ready:
     statusText = "Ready";
     statusColour = juce::Colours::green;
     break;
-  case SlicerPluginProcessor::LoadStatus::Missing:
+  case CutShufflePluginProcessor::LoadStatus::Missing:
     statusText = "Missing";
     statusColour = juce::Colours::red;
     break;
-  case SlicerPluginProcessor::LoadStatus::Error:
+  case CutShufflePluginProcessor::LoadStatus::Error:
     statusText = "Error";
     statusColour = juce::Colours::red;
     break;
@@ -78,7 +78,7 @@ void TopBarComponent::refresh()
     name = "No sample loaded";
   sampleLabel_.setText(name, juce::dontSendNotification);
 
-  if (status == SlicerPluginProcessor::LoadStatus::Error)
+  if (status == CutShufflePluginProcessor::LoadStatus::Error)
   {
     juce::String err = processor_.getLoadErrorText();
     if (err.isNotEmpty())

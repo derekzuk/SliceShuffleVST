@@ -8,7 +8,7 @@
 class WaveformView : public juce::Component, public juce::ChangeListener
 {
 public:
-  explicit WaveformView(SlicerPluginProcessor& proc);
+  explicit WaveformView(CutShufflePluginProcessor& proc);
 
   void paint(juce::Graphics&) override;
   void resized() override;
@@ -32,7 +32,7 @@ private:
 
   static constexpr int kDragStartThresholdPx = 5;
 
-  SlicerPluginProcessor& processor_;
+  CutShufflePluginProcessor& processor_;
   juce::Point<int> dragStartPos_;
   bool dragStarted_{false};
   std::unordered_set<size_t> selectedSliceIndices_;

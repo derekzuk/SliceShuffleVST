@@ -11,7 +11,7 @@ juce::String midiNoteToName(int note)
 }
 } // namespace
 
-MidiMappingOverlay::MidiMappingOverlay(SlicerPluginProcessor& proc) : processor_(proc) {}
+MidiMappingOverlay::MidiMappingOverlay(CutShufflePluginProcessor& proc) : processor_(proc) {}
 
 void MidiMappingOverlay::paint(juce::Graphics& g)
 {

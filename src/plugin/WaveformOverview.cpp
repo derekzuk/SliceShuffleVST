@@ -8,7 +8,7 @@ constexpr const char* kWindowBeatsId = "windowBeats";
 constexpr const char* kWindowPositionId = "windowPosition";
 } // namespace
 
-WaveformOverview::WaveformOverview(SlicerPluginProcessor& proc) : processor_(proc)
+WaveformOverview::WaveformOverview(CutShufflePluginProcessor& proc) : processor_(proc)
 {
   setOpaque(true);
 }
@@ -269,7 +269,7 @@ void WaveformOverview::mouseDown(const juce::MouseEvent& e)
 
   // Precompute slice end samples for binary search during drag
   sliceEnds_.clear();
-  const std::vector<slicer::Slice>& slices = state->slices;
+  const std::vector<cutshuffle::Slice>& slices = state->slices;
   sliceEnds_.reserve(slices.size());
   for (const auto& sl : slices)
     sliceEnds_.push_back(static_cast<juce::int64>(sl.startSample + sl.lengthSamples));

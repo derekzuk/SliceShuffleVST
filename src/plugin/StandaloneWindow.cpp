@@ -7,7 +7,7 @@
 
 namespace juce {
 
-class SlicerStandaloneWindow : public StandaloneFilterWindow
+class CutShuffleStandaloneWindow : public StandaloneFilterWindow
 {
 public:
   using StandaloneFilterWindow::StandaloneFilterWindow;
@@ -45,10 +45,10 @@ public:
 private:
   void askUserToSaveSettings()
   {
-    auto* p = dynamic_cast<SlicerPluginProcessor*>(getAudioProcessor());
+    auto* p = dynamic_cast<CutShufflePluginProcessor*>(getAudioProcessor());
     if (p == nullptr)
     {
-      pluginHolder->askUserToSaveState(".slicerpreset");
+      pluginHolder->askUserToSaveState(".cutshufflepreset");
       return;
     }
     juce::File suggestedDir = pluginHolder->getLastFile();
@@ -56,9 +56,9 @@ private:
       suggestedDir = suggestedDir.getParentDirectory();
     if (!suggestedDir.isDirectory())
       suggestedDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    juce::File defaultFile = suggestedDir.getChildFile("Preset.slicerpreset");
+    juce::File defaultFile = suggestedDir.getChildFile("Preset.cutshufflepreset");
     auto chooser = std::make_shared<juce::FileChooser>(
-        TRANS("Save Settings"), defaultFile, "*.slicerpreset");
+        TRANS("Save Settings"), defaultFile, "*.cutshufflepreset");
     chooser->launchAsync(
         juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
         [this, p, chooser](const juce::FileChooser& c)
@@ -67,7 +67,7 @@ private:
             return;
           juce::File f = c.getResult();
           if (f.getFileExtension().isEmpty())
-            f = f.withFileExtension("slicerpreset");
+            f = f.withFileExtension("cutshufflepreset");
           if (p->savePresetToFile(f))
             pluginHolder->setLastFile(c);
         });
@@ -75,10 +75,10 @@ private:
 
   void askUserToLoadSettings()
   {
-    auto* p = dynamic_cast<SlicerPluginProcessor*>(getAudioProcessor());
+    auto* p = dynamic_cast<CutShufflePluginProcessor*>(getAudioProcessor());
     if (p == nullptr)
     {
-      pluginHolder->askUserToLoadState(".slicerpreset");
+      pluginHolder->askUserToLoadState(".cutshufflepreset");
       return;
     }
     juce::File suggestedDir = pluginHolder->getLastFile();
@@ -87,7 +87,7 @@ private:
     if (!suggestedDir.isDirectory())
       suggestedDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
     auto chooser = std::make_shared<juce::FileChooser>(
-        TRANS("Load Settings"), suggestedDir, "*.slicerpreset;*.xml");
+        TRANS("Load Settings"), suggestedDir, "*.cutshufflepreset;*.xml");
     chooser->launchAsync(
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
         [this, p, chooser](const juce::FileChooser& c)
@@ -101,11 +101,11 @@ private:
   }
 };
 
-// Custom app that uses SlicerStandaloneWindow so Options -> Save Settings uses savePresetToFile.
-class SlicerStandaloneApp final : public JUCEApplication
+// Custom app that uses CutShuffleStandaloneWindow so Options -> Save Settings uses savePresetToFile.
+class CutShuffleStandaloneApp final : public JUCEApplication
 {
 public:
-  SlicerStandaloneApp()
+  CutShuffleStandaloneApp()
   {
     PropertiesFile::Options options;
     options.applicationName     = CharPointer_UTF8(JucePlugin_Name);
@@ -131,7 +131,7 @@ public:
       jassertfalse;
       return nullptr;
     }
-    return new SlicerStandaloneWindow(
+    return new CutShuffleStandaloneWindow(
         getApplicationName(),
         LookAndFeel::getDefaultLookAndFeel().findColour(ResizableWindow::backgroundColourId),
         createPluginHolder());
@@ -212,6 +212,6 @@ private:
 
 } // namespace juce
 
-JUCE_CREATE_APPLICATION_DEFINE(juce::SlicerStandaloneApp)
+JUCE_CREATE_APPLICATION_DEFINE(juce::CutShuffleStandaloneApp)
 
 #endif

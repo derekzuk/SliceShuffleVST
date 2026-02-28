@@ -1,9 +1,9 @@
-# Slicer — BPM-based WAV slicer (console app → VST3)
+# CutShuffle — BPM-based WAV slicer (console app → VST3)
 # CMake-first, JUCE 7.x. Out-of-source build: cmake -B build && cmake --build build
 
 cmake_minimum_required(VERSION 3.22)
 
-project(Slicer VERSION 0.1.0
+project(CutShuffle VERSION 0.1.0
   LANGUAGES C CXX
   DESCRIPTION "BPM-slice WAV and rearrange slices randomly (CLI + plugin)")
 

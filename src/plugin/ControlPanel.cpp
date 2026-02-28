@@ -7,7 +7,7 @@ constexpr const char* kWindowBeatsId = "windowBeats";
 constexpr const char* kWindowPositionId = "windowPosition";
 } // namespace
 
-ControlPanel::ControlPanel(SlicerPluginProcessor& proc) : processor_(proc)
+ControlPanel::ControlPanel(CutShufflePluginProcessor& proc) : processor_(proc)
 {
   bpmLabel_.setText("BPM", juce::dontSendNotification);
   addAndMakeVisible(bpmLabel_);

@@ -55,14 +55,8 @@ int WaveformOverview::hitTestWindow(float x, float windowStartX, float windowEnd
   const float margin = kEdgeHitWidthPx * 1.5f;
   if (x < windowStartX - margin)
     return -2;
-  if (x < windowStartX + kEdgeHitWidthPx)
-    return -1;
-  if (x <= windowEndX - kEdgeHitWidthPx)
-    return 0;
-  if (x <= windowEndX + kEdgeHitWidthPx)
-    return 1;
   if (x <= windowEndX + margin)
-    return 0;
+    return 0; // entire window is draggable (no edge resize)
   return -2;
 }
 
@@ -334,20 +328,6 @@ void WaveformOverview::mouseDrag(const juce::MouseEvent& e)
     dragWindowStartSample_ = newStart;
     dragWindowEndSample_ = newEnd;
   }
-  else if (dragHit_ == -1)
-  {
-    juce::int64 newStart = xToSample(x, totalSamples, width);
-    newStart = juce::jlimit(juce::int64(0), dragStartSampleEnd_ - 1, newStart);
-    dragWindowStartSample_ = newStart;
-    dragWindowEndSample_ = dragStartSampleEnd_;
-  }
-  else if (dragHit_ == 1)
-  {
-    juce::int64 newEnd = xToSample(x, totalSamples, width);
-    newEnd = juce::jlimit(dragStartSampleStart_ + 1, totalSamples, newEnd);
-    dragWindowStartSample_ = dragStartSampleStart_;
-    dragWindowEndSample_ = newEnd;
-  }
   else
   {
     // Empty-area drag: move the window to follow the cursor (same size, center on cursor)
@@ -429,11 +409,7 @@ void WaveformOverview::mouseMove(const juce::MouseEvent& e)
   const float endX = sampleToX(endSample, totalSamples, width);
   const float x = static_cast<float>(e.getPosition().getX());
   const int hit = hitTestWindow(x, startX, endX);
-  if (hit == -1)
-    setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-  else if (hit == 1)
-    setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-  else if (hit == 0)
+  if (hit == 0)
     setMouseCursor(juce::MouseCursor::DraggingHandCursor);
   else
     setMouseCursor(juce::MouseCursor::NormalCursor);

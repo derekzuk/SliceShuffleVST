@@ -23,7 +23,7 @@ public:
   void ensureEnvelopeBuilt();
 
 private:
-  /** Return which part of the window rect was hit: -1 left edge, 0 body, 1 right edge, -2 none. */
+  /** Return which part of the window rect was hit: 0 = window (drag to move), -2 = outside. */
   int hitTestWindow(float x, float windowStartX, float windowEndX) const;
   /** Map sample position to x in [0, width]. */
   float sampleToX(juce::int64 sample, juce::int64 totalSamples, float width) const;
@@ -51,7 +51,7 @@ private:
   std::atomic<bool> envelopeReady_{false};
   std::atomic<uint64_t> envelopeJobId_{0};
 
-  // Drag state: -2 none, -1 left edge, 0 body, 1 right edge
+  // Drag state: -2 none, 0 window (move only; no edge resize)
   int dragHit_{-2};
   float dragStartX_{0};
   juce::int64 dragStartSampleStart_{0};

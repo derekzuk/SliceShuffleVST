@@ -58,12 +58,12 @@ git commit -m "Pin JUCE to 7.0.9"
 From the **project root** (not inside `src/`):
 
 ```bash
-cmake -B build
-cmake --build build
+cmake -B build && cmake --build build
 ```
 
 - **CLI:** `build/src/CutShuffleCli_artefacts/CutShuffleCli` (with Make/Ninja; Xcode/VS use `Debug/` or `Release/` under that).
-- **Plugin:** `build/CutShufflePlugin_artefacts/Debug/VST3/CutShuffle.vst3` (or `Release/`).
+- **Plugin (VST3):** `build/src/CutShufflePlugin_artefacts/VST3/CutShuffle.vst3`
+- **Standalone app:** `build/src/CutShufflePlugin_artefacts/Standalone/CutShuffle.app`
 
 Optional: use a generator explicitly:
 
@@ -78,7 +78,10 @@ cmake -G "Ninja" -B build
   `./build/src/CutShuffleCli_artefacts/CutShuffleCli input.wav output.wav --bpm 120`  
   (Full usage to be implemented: `CutShuffleCli input.wav output.wav --bpm 120`.)
 
-- **Plugin:** Load `CutShuffle.vst3` in FL Studio (or any VST3 host).
+- **Standalone app (macOS):**  
+  `./build/src/CutShufflePlugin_artefacts/Standalone/CutShuffle.app/Contents/MacOS/CutShuffle`
+
+- **Plugin:** Load `CutShuffle.vst3` in FL Studio (or any VST3 host). Path: `build/src/CutShufflePlugin_artefacts/VST3/CutShuffle.vst3`
 
 ## Roadmap
 

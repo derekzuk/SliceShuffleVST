@@ -30,14 +30,31 @@ void WaveformView::paint(juce::Graphics& g)
   const float width = bounds.getWidth();
   const float height = bounds.getHeight();
   const juce::int64 totalSamples = state->lengthInSamples;
-  auto [windowStartSample, windowEndSample] = processor_.getWindowRangeSnappedToSlices(*state);
-  const juce::int64 rangeStart = juce::jlimit(juce::int64(0), totalSamples, windowStartSample);
-  const juce::int64 rangeEnd = juce::jmin(totalSamples, windowEndSample);
+  juce::int64 rangeStart;
+  juce::int64 rangeEnd;
+  bool useOverride = (overrideStart_ >= 0 && overrideEnd_ > overrideStart_);
+  if (useOverride)
+  {
+    rangeStart = juce::jlimit(juce::int64(0), totalSamples, overrideStart_);
+    rangeEnd = juce::jlimit(juce::int64(0), totalSamples, overrideEnd_);
+    if (rangeEnd <= rangeStart)
+      rangeEnd = juce::jmin(totalSamples, rangeStart + 1);
+  }
+  else
+  {
+    auto [windowStartSample, windowEndSample] = processor_.getWindowRangeSnappedToSlices(*state);
+    rangeStart = juce::jlimit(juce::int64(0), totalSamples, windowStartSample);
+    rangeEnd = juce::jmin(totalSamples, windowEndSample);
+  }
   const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
 
-  // Build a window buffer that reflects the current playbackOrder (non-destructive rearrange).
+  // Build a window buffer: when overriding (live drag) use playback order for that range; otherwise use window.
   juce::AudioBuffer<float> windowBuffer;
-  processor_.renderWindowToBuffer(*state, windowBuffer);
+  if (useOverride && rangeLength > 0 && rangeStart + rangeLength <= totalSamples)
+    processor_.renderSampleRangeToBuffer(*state, rangeStart, rangeEnd, windowBuffer);
+  else if (!useOverride)
+    processor_.renderWindowToBuffer(*state, windowBuffer);
+
   const int numChannels = windowBuffer.getNumChannels();
   const int numSamples = windowBuffer.getNumSamples();
   if (numSamples > 0 && rangeLength > 0)
@@ -120,7 +137,7 @@ void WaveformView::paint(juce::Graphics& g)
   }
 
   // Window edges (this view shows the window; subtle left/right border)
-  if (windowEndSample > windowStartSample && totalSamples > 0)
+  if (rangeEnd > rangeStart && totalSamples > 0)
   {
     g.setColour(juce::Colour(0x400080ff));
     g.drawVerticalLine(0, 0.0f, height);
@@ -176,6 +193,14 @@ void WaveformView::mouseDown(const juce::MouseEvent& e)
 
 bool WaveformView::keyPressed(const juce::KeyPress& key)
 {
+  if (key == juce::KeyPress::spaceKey)
+  {
+    if (processor_.isPreviewActive())
+      processor_.stopPreview();
+    else
+      processor_.startPreview();
+    return true;
+  }
   if (selectedSliceIndices_.empty())
     return false;
   // Shift+Left / Shift+Right: swap selected slice(s) with neighbour; highlight follows the moved slice
@@ -250,4 +275,24 @@ void WaveformView::refresh()
     }
   }
   repaint();
+}
+
+void WaveformView::setDisplayWindowOverride(juce::int64 startSample, juce::int64 endSample)
+{
+  if (startSample < 0 || endSample <= startSample)
+  {
+    if (overrideStart_ >= 0)
+    {
+      overrideStart_ = -1;
+      overrideEnd_ = -1;
+      repaint();
+    }
+    return;
+  }
+  if (overrideStart_ != startSample || overrideEnd_ != endSample)
+  {
+    overrideStart_ = startSample;
+    overrideEnd_ = endSample;
+    repaint();
+  }
 }

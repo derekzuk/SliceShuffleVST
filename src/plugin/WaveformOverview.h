@@ -4,12 +4,16 @@
 #include "PluginProcessor.h"
 #include "PreparedState.h"
 #include <atomic>
+#include <functional>
 #include <vector>
 
 /** Strip showing the full-length waveform with a draggable window that defines the visible range. */
 class WaveformOverview : public juce::Component
 {
 public:
+  /** Called with (startSample, endSample) during drag; (-1, -1) when drag ends. */
+  using LiveWindowRangeCallback = std::function<void(juce::int64, juce::int64)>;
+
   explicit WaveformOverview(CutShufflePluginProcessor& proc);
 
   void paint(juce::Graphics&) override;
@@ -18,6 +22,9 @@ public:
   void mouseDrag(const juce::MouseEvent& e) override;
   void mouseUp(const juce::MouseEvent&) override;
   void mouseMove(const juce::MouseEvent& e) override;
+
+  /** Set callback to notify current window range during drag (for live bottom waveform). */
+  void setLiveWindowRangeCallback(LiveWindowRangeCallback cb) { liveWindowRangeCallback_ = std::move(cb); }
 
   /** Call when sample may have loaded or state changed; triggers envelope rebuild if needed. */
   void ensureEnvelopeBuilt();
@@ -31,6 +38,12 @@ private:
   juce::int64 xToSample(float x, juce::int64 totalSamples, float width) const;
   /** Set processor window from slice range (updates APVTS). Only use on mouseUp. */
   void setWindowFromSliceRange(size_t startSliceIdx, size_t endSliceIdxExclusive);
+  /** Return the slice boundary (sample position) closest to the given sample. */
+  juce::int64 nearestSliceBoundarySample(juce::int64 sample) const;
+  /** Given a boundary sample position, return start slice index (0 or index+1 where sliceEnds_[index]==boundary). */
+  size_t boundaryToStartSliceIndex(juce::int64 boundarySample) const;
+  /** Given a boundary sample position (end of a slice), return exclusive end slice index. */
+  size_t boundaryToEndSliceIndexExclusive(juce::int64 boundarySample) const;
   /** Rebuild min/max envelope on background thread; callAsync to swap and repaint. */
   void rebuildEnvelopeAsync();
   /** Binary search: slice index containing sample (using cached sliceEnds_). */
@@ -61,4 +74,6 @@ private:
   juce::int64 dragWindowEndSample_{-1};
   /** Precomputed slice end samples for binary search (set in mouseDown). */
   std::vector<juce::int64> sliceEnds_;
+
+  LiveWindowRangeCallback liveWindowRangeCallback_;
 };

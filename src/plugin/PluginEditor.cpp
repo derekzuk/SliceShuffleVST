@@ -11,6 +11,10 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
   addAndMakeVisible(topBar_);
   addAndMakeVisible(waveformOverview_);
   addAndMakeVisible(waveformView_);
+  waveformOverview_.setLiveWindowRangeCallback(
+      [this](juce::int64 startSample, juce::int64 endSample)
+      { waveformView_.setDisplayWindowOverride(startSample, endSample); });
+  setWantsKeyboardFocus(true);
   controlPanelViewport_.setViewedComponent(&controlPanel_, false);
   controlPanelViewport_.setScrollBarsShown(false, false);
   addAndMakeVisible(controlPanelViewport_);
@@ -90,6 +94,22 @@ CutShufflePluginEditor::~CutShufflePluginEditor()
 void CutShufflePluginEditor::paint(juce::Graphics& g)
 {
   g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+}
+
+bool CutShufflePluginEditor::keyPressed(const juce::KeyPress& key)
+{
+  if (key == juce::KeyPress::spaceKey)
+  {
+    if (processorRef.isPreviewActive())
+      processorRef.stopPreview();
+    else
+    {
+      processorRef.startPreview();
+      waveformView_.grabKeyboardFocus();
+    }
+    return true;
+  }
+  return false;
 }
 
 void CutShufflePluginEditor::resized()

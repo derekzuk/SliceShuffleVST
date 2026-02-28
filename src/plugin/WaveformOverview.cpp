@@ -62,7 +62,7 @@ int WaveformOverview::hitTestWindow(float x, float windowStartX, float windowEnd
 
 void WaveformOverview::setWindowFromSliceRange(size_t startSliceIdx, size_t endSliceIdxExclusive)
 {
-  (void)endSliceIdxExclusive; // we only set position; window size comes from the slider
+  (void)endSliceIdxExclusive; // used only for edge-snap path; position/size set below
   auto state = processor_.getPreparedState();
   if (!state || state->slices.empty())
     return;
@@ -70,7 +70,6 @@ void WaveformOverview::setWindowFromSliceRange(size_t startSliceIdx, size_t endS
   juce::AudioProcessorValueTreeState& apvts = processor_.getValueTreeState();
 
   // Keep the current Window # (slices) unchanged; only update position.
-  // AudioParameterInt stores the actual value 4..64, not normalized.
   const float rawWindow = static_cast<float>(apvts.getRawParameterValue(kWindowBeatsId)->load());
   int windowSlices = juce::jlimit(kMinWindowSlices, kMaxWindowSlices, static_cast<int>(std::round(rawWindow)));
   windowSlices = (windowSlices + 1) & ~1; // even: 4, 6, 8, ...
@@ -85,6 +84,45 @@ void WaveformOverview::setWindowFromSliceRange(size_t startSliceIdx, size_t endS
     param->setValueNotifyingHost(posNorm);
   else
     apvts.getParameterAsValue(kWindowPositionId).setValue(static_cast<double>(posNorm));
+}
+
+juce::int64 WaveformOverview::nearestSliceBoundarySample(juce::int64 sample) const
+{
+  if (sliceEnds_.empty())
+    return 0;
+  const juce::int64 leftBound = 0;
+  const juce::int64 rightBound = sliceEnds_.back();
+  if (sample <= leftBound)
+    return leftBound;
+  if (sample >= rightBound)
+    return rightBound;
+  auto it = std::lower_bound(sliceEnds_.begin(), sliceEnds_.end(), sample);
+  const size_t idx = static_cast<size_t>(std::distance(sliceEnds_.begin(), it));
+  const juce::int64 boundaryAfter = (idx < sliceEnds_.size()) ? static_cast<juce::int64>(sliceEnds_[idx]) : rightBound;
+  const juce::int64 boundaryBefore = (idx > 0) ? static_cast<juce::int64>(sliceEnds_[idx - 1]) : leftBound;
+  return (sample - boundaryBefore <= boundaryAfter - sample) ? boundaryBefore : boundaryAfter;
+}
+
+size_t WaveformOverview::boundaryToStartSliceIndex(juce::int64 boundarySample) const
+{
+  if (sliceEnds_.empty())
+    return 0;
+  if (boundarySample <= 0)
+    return 0;
+  for (size_t i = 0; i < sliceEnds_.size(); ++i)
+    if (static_cast<juce::int64>(sliceEnds_[i]) == boundarySample)
+      return i + 1;
+  return sampleToSliceIndexBinary(boundarySample) + 1;
+}
+
+size_t WaveformOverview::boundaryToEndSliceIndexExclusive(juce::int64 boundarySample) const
+{
+  if (sliceEnds_.empty())
+    return 0;
+  for (size_t i = 0; i < sliceEnds_.size(); ++i)
+    if (static_cast<juce::int64>(sliceEnds_[i]) == boundarySample)
+      return i + 1;
+  return juce::jmin(sliceEnds_.size(), sampleToSliceIndexBinary(boundarySample) + 1);
 }
 
 void WaveformOverview::rebuildEnvelopeAsync()
@@ -342,6 +380,9 @@ void WaveformOverview::mouseDrag(const juce::MouseEvent& e)
     dragWindowEndSample_ = newStart + windowLen;
   }
 
+  if (liveWindowRangeCallback_)
+    liveWindowRangeCallback_(dragWindowStartSample_, dragWindowEndSample_);
+
   repaint();
 }
 
@@ -357,13 +398,39 @@ void WaveformOverview::mouseUp(const juce::MouseEvent& e)
     if (state && !state->slices.empty() && state->lengthInSamples > 0 &&
         dragWindowStartSample_ >= 0 && dragWindowEndSample_ > dragWindowStartSample_)
     {
-      // Snap to slice boundaries only on release
-      size_t si = sampleToSliceIndexBinary(dragWindowStartSample_);
-      size_t ei = sampleToSliceIndexBinary(dragWindowEndSample_ - 1);
-      if (ei < si)
-        ei = si;
-      ei += 1;
-      setWindowFromSliceRange(si, ei);
+      const juce::int64 totalSamples = state->lengthInSamples;
+      const juce::int64 snappedLeft = nearestSliceBoundarySample(dragWindowStartSample_);
+      const juce::int64 snappedRight = nearestSliceBoundarySample(dragWindowEndSample_);
+
+      const float rawWindow = static_cast<float>(processor_.getValueTreeState().getRawParameterValue(kWindowBeatsId)->load());
+      int windowSlices = juce::jlimit(kMinWindowSlices, kMaxWindowSlices, static_cast<int>(std::round(rawWindow)));
+      windowSlices = (windowSlices + 1) & ~1;
+      const size_t numSlices = state->slices.size();
+      const size_t maxStart = numSlices >= static_cast<size_t>(windowSlices)
+                                  ? numSlices - static_cast<size_t>(windowSlices)
+                                  : 0;
+
+      size_t startFromLeft = boundaryToStartSliceIndex(snappedLeft);
+      startFromLeft = juce::jmin(startFromLeft, maxStart);
+      const juce::int64 windowStartA = (startFromLeft == 0) ? juce::int64(0) : sliceEnds_[startFromLeft - 1];
+      const juce::int64 windowEndA = (startFromLeft + static_cast<size_t>(windowSlices) <= sliceEnds_.size())
+                                         ? sliceEnds_[startFromLeft + static_cast<size_t>(windowSlices) - 1]
+                                         : totalSamples;
+      const juce::int64 distA = std::abs(windowStartA - dragWindowStartSample_) + std::abs(windowEndA - dragWindowEndSample_);
+
+      size_t endExclusiveFromRight = boundaryToEndSliceIndexExclusive(snappedRight);
+      size_t startFromRight = (endExclusiveFromRight >= static_cast<size_t>(windowSlices))
+                                  ? (endExclusiveFromRight - static_cast<size_t>(windowSlices))
+                                  : 0;
+      startFromRight = juce::jmin(startFromRight, maxStart);
+      const juce::int64 windowStartB = (startFromRight == 0) ? juce::int64(0) : sliceEnds_[startFromRight - 1];
+      const juce::int64 windowEndB = (startFromRight + static_cast<size_t>(windowSlices) <= sliceEnds_.size())
+                                         ? sliceEnds_[startFromRight + static_cast<size_t>(windowSlices) - 1]
+                                         : totalSamples;
+      const juce::int64 distB = std::abs(windowStartB - dragWindowStartSample_) + std::abs(windowEndB - dragWindowEndSample_);
+
+      const size_t startSliceIdx = (distA <= distB) ? startFromLeft : startFromRight;
+      setWindowFromSliceRange(startSliceIdx, startSliceIdx + static_cast<size_t>(windowSlices));
     }
 
     if (auto* param = processor_.getValueTreeState().getParameter(kWindowPositionId))
@@ -371,19 +438,45 @@ void WaveformOverview::mouseUp(const juce::MouseEvent& e)
   }
   else
   {
-    // Dragged in empty area: still commit window if we set a range
+    // Dragged in empty area: snap to nearest boundaries and place window
     auto state = processor_.getPreparedState();
     if (state && !state->slices.empty() && state->lengthInSamples > 0 &&
         dragWindowStartSample_ >= 0 && dragWindowEndSample_ > dragWindowStartSample_)
     {
+      const juce::int64 snappedLeft = nearestSliceBoundarySample(dragWindowStartSample_);
+      const juce::int64 snappedRight = nearestSliceBoundarySample(dragWindowEndSample_);
+
+      const float rawWindow = static_cast<float>(processor_.getValueTreeState().getRawParameterValue(kWindowBeatsId)->load());
+      int windowSlices = juce::jlimit(kMinWindowSlices, kMaxWindowSlices, static_cast<int>(std::round(rawWindow)));
+      windowSlices = (windowSlices + 1) & ~1;
+      const size_t numSlices = state->slices.size();
+      const size_t maxStart = numSlices >= static_cast<size_t>(windowSlices)
+                                  ? numSlices - static_cast<size_t>(windowSlices)
+                                  : 0;
+
+      size_t startFromLeft = boundaryToStartSliceIndex(snappedLeft);
+      startFromLeft = juce::jmin(startFromLeft, maxStart);
+      const juce::int64 windowStartA = (startFromLeft == 0) ? juce::int64(0) : sliceEnds_[startFromLeft - 1];
+      const juce::int64 windowEndA = (startFromLeft + static_cast<size_t>(windowSlices) <= sliceEnds_.size())
+                                         ? sliceEnds_[startFromLeft + static_cast<size_t>(windowSlices) - 1]
+                                         : state->lengthInSamples;
+      const juce::int64 distA = std::abs(windowStartA - dragWindowStartSample_) + std::abs(windowEndA - dragWindowEndSample_);
+
+      size_t endExclusiveFromRight = boundaryToEndSliceIndexExclusive(snappedRight);
+      size_t startFromRight = (endExclusiveFromRight >= static_cast<size_t>(windowSlices))
+                                  ? (endExclusiveFromRight - static_cast<size_t>(windowSlices))
+                                  : 0;
+      startFromRight = juce::jmin(startFromRight, maxStart);
+      const juce::int64 windowStartB = (startFromRight == 0) ? juce::int64(0) : sliceEnds_[startFromRight - 1];
+      const juce::int64 windowEndB = (startFromRight + static_cast<size_t>(windowSlices) <= sliceEnds_.size())
+                                         ? sliceEnds_[startFromRight + static_cast<size_t>(windowSlices) - 1]
+                                         : state->lengthInSamples;
+      const juce::int64 distB = std::abs(windowStartB - dragWindowStartSample_) + std::abs(windowEndB - dragWindowEndSample_);
+
+      const size_t startSliceIdx = (distA <= distB) ? startFromLeft : startFromRight;
       if (auto* param = processor_.getValueTreeState().getParameter(kWindowPositionId))
         param->beginChangeGesture();
-      size_t si = sampleToSliceIndexBinary(dragWindowStartSample_);
-      size_t ei = sampleToSliceIndexBinary(dragWindowEndSample_ - 1);
-      if (ei < si)
-        ei = si;
-      ei += 1;
-      setWindowFromSliceRange(si, ei);
+      setWindowFromSliceRange(startSliceIdx, startSliceIdx + static_cast<size_t>(windowSlices));
       if (auto* p = processor_.getValueTreeState().getParameter(kWindowPositionId))
         p->endChangeGesture();
     }
@@ -392,6 +485,9 @@ void WaveformOverview::mouseUp(const juce::MouseEvent& e)
   dragHit_ = -2;
   dragWindowStartSample_ = -1;
   dragWindowEndSample_ = -1;
+
+  if (liveWindowRangeCallback_)
+    liveWindowRangeCallback_(-1, -1);
 }
 
 void WaveformOverview::mouseMove(const juce::MouseEvent& e)

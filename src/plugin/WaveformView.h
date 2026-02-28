@@ -20,6 +20,9 @@ public:
   /** Call when sample or slice map may have changed (e.g. from timer). */
   void refresh();
 
+  /** Set the window range to display (used during overview drag for live sync). Pass start < 0 to clear. */
+  void setDisplayWindowOverride(juce::int64 startSample, juce::int64 endSample);
+
   /** Returns the set of selected slice indices (control+click). */
   const std::unordered_set<size_t>& getSelectedSliceIndices() const { return selectedSliceIndices_; }
 
@@ -36,6 +39,9 @@ private:
   juce::Point<int> dragStartPos_;
   bool dragStarted_{false};
   std::unordered_set<size_t> selectedSliceIndices_;
+  /** When valid (overrideStart_ >= 0), bottom view shows this range (raw waveform) for live overview drag. */
+  juce::int64 overrideStart_{-1};
+  juce::int64 overrideEnd_{-1};
   juce::AudioFormatManager formatManager_;
   juce::AudioThumbnailCache thumbnailCache_{1};
   juce::AudioThumbnail thumbnail_{512, formatManager_, thumbnailCache_};

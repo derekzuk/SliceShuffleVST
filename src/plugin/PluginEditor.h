@@ -19,6 +19,8 @@ public:
   void paint(juce::Graphics&) override;
   void resized() override;
 
+  bool keyPressed(const juce::KeyPress& key) override;
+
   bool shouldDropFilesWhenDraggedExternally(const juce::DragAndDropTarget::SourceDetails& sourceDetails,
                                             juce::StringArray& files,
                                             bool& canMoveFiles) override;

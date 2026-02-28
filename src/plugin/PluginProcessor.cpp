@@ -953,6 +953,86 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
   }
 }
 
+void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& state,
+                                                         juce::int64 startSample,
+                                                         juce::int64 endSample,
+                                                         juce::AudioBuffer<float>& out) const
+{
+  if (startSample >= endSample)
+  {
+    out.setSize(0, 0);
+    return;
+  }
+  const size_t totalSlices = state.slices.size();
+  if (state.playbackOrder.size() != totalSlices)
+  {
+    out.setSize(0, 0);
+    return;
+  }
+  const int numCh = state.buffer.getNumChannels();
+  const juce::int64 totalLength = state.lengthInSamples;
+  startSample = juce::jlimit(juce::int64(0), totalLength, startSample);
+  endSample = juce::jlimit(juce::int64(0), totalLength, endSample);
+  if (endSample <= startSample)
+  {
+    out.setSize(0, 0);
+    return;
+  }
+
+  // First pass: compute output length (sum of overlapping portions in playback order)
+  size_t outSamples = 0;
+  for (size_t logical = 0; logical < totalSlices; ++logical)
+  {
+    const size_t srcIdx = state.playbackOrder[logical];
+    if (srcIdx >= totalSlices)
+      continue;
+    const auto& sl = state.slices[srcIdx];
+    const juce::int64 sliceStart = static_cast<juce::int64>(sl.startSample);
+    const juce::int64 sliceEnd = sliceStart + static_cast<juce::int64>(sl.lengthSamples);
+    const juce::int64 overlapStart = juce::jmax(sliceStart, startSample);
+    const juce::int64 overlapEnd = juce::jmin(sliceEnd, endSample);
+    if (overlapStart < overlapEnd)
+      outSamples += static_cast<size_t>(overlapEnd - overlapStart);
+  }
+
+  if (outSamples == 0)
+  {
+    out.setSize(0, 0);
+    return;
+  }
+
+  out.setSize(numCh, static_cast<int>(outSamples), false, false, true);
+  out.clear();
+
+  size_t writePos = 0;
+  for (size_t logical = 0; logical < totalSlices; ++logical)
+  {
+    const size_t srcIdx = state.playbackOrder[logical];
+    if (srcIdx >= totalSlices)
+      continue;
+    const auto& sl = state.slices[srcIdx];
+    const juce::int64 sliceStart = static_cast<juce::int64>(sl.startSample);
+    const juce::int64 sliceEnd = sliceStart + static_cast<juce::int64>(sl.lengthSamples);
+    const juce::int64 overlapStart = juce::jmax(sliceStart, startSample);
+    const juce::int64 overlapEnd = juce::jmin(sliceEnd, endSample);
+    if (overlapStart >= overlapEnd)
+      continue;
+
+    const int srcStart = static_cast<int>(overlapStart);
+    const int len = static_cast<int>(overlapEnd - overlapStart);
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+      out.copyFrom(ch,
+                   static_cast<int>(writePos),
+                   state.buffer,
+                   ch,
+                   srcStart,
+                   len);
+    }
+    writePos += static_cast<size_t>(len);
+  }
+}
+
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
   return static_cast<juce::AudioProcessor*>(new CutShufflePluginProcessor());

@@ -69,6 +69,10 @@ public:
   /** Render the current window region (respecting playbackOrder) into out. */
   void renderWindowToBuffer(const PreparedState& state, juce::AudioBuffer<float>& out) const;
 
+  /** Render sample range [startSample, endSample) in playback order (for live overview drag). */
+  void renderSampleRangeToBuffer(const PreparedState& state, juce::int64 startSample, juce::int64 endSample,
+                                 juce::AudioBuffer<float>& out) const;
+
   /** Called from UI thread. Starts async load; status becomes Loading then Ready/Error. */
   void loadSampleFromFile(const juce::File& file);
   /** Clear sample and set status to Idle. */

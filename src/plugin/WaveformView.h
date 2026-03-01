@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <unordered_set>
+#include <vector>
 #include "PluginProcessor.h"
 #include "PreparedState.h"
 
@@ -41,6 +42,12 @@ private:
   int sliceIndexAt(float x) const;
   /** All slice indices that overlap the horizontal range [x0, x1] (component coords). */
   std::unordered_set<size_t> sliceIndicesInXRange(float x0, float x1) const;
+  /** Segment in the displayed window: (logical index, start offset in window buffer, length in samples). */
+  struct WindowSegment { size_t logicalIndex; size_t startOffset; size_t length; };
+  /** Build segments for the current display range (playback order). Used for hit-test and selection draw. */
+  std::vector<WindowSegment> buildWindowSegments(const PreparedState& state,
+                                                juce::int64 rangeStart,
+                                                juce::int64 rangeEnd) const;
 
   static constexpr int kDragStartThresholdPx = 5;
 

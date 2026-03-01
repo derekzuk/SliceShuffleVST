@@ -146,6 +146,95 @@ void CutShufflePluginProcessor::applyNewPreparedState(std::shared_ptr<const Prep
     setLoadError({});
 }
 
+void CutShufflePluginProcessor::pushUndoEntry(std::vector<size_t> currentOrder,
+                                             std::optional<std::unordered_set<size_t>> selectionToRestore)
+{
+  undo_.push_back({gen_, std::move(currentOrder), std::move(selectionToRestore)});
+  redo_.clear();
+  while (undo_.size() > kMaxUndoSteps)
+    undo_.pop_front();
+}
+
+void CutShufflePluginProcessor::incrementGeneration()
+{
+  ++gen_;
+}
+
+void CutShufflePluginProcessor::undo(const std::unordered_set<size_t>& currentSelection)
+{
+  while (!undo_.empty() && undo_.back().gen != gen_)
+    undo_.pop_back();
+  if (undo_.empty())
+    return;
+  UndoEntry entry = std::move(undo_.back());
+  undo_.pop_back();
+
+  std::shared_ptr<const PreparedState> state;
+  {
+    std::lock_guard lock(preparedStateMutex_);
+    state = preparedState_;
+  }
+  if (!state || state->playbackOrder.size() != entry.order.size())
+    return;
+  redo_.push_back({gen_, state->playbackOrder, currentSelection});
+
+  if (entry.selectionToRestore)
+    pendingRestoreSelection_ = entry.selectionToRestore;
+
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->playbackOrder = std::move(entry.order);
+  applyNewPreparedState(std::move(newState));
+}
+
+void CutShufflePluginProcessor::redo(const std::unordered_set<size_t>& currentSelection)
+{
+  while (!redo_.empty() && redo_.back().gen != gen_)
+    redo_.pop_back();
+  if (redo_.empty())
+    return;
+  UndoEntry entry = std::move(redo_.back());
+  redo_.pop_back();
+
+  std::shared_ptr<const PreparedState> state;
+  {
+    std::lock_guard lock(preparedStateMutex_);
+    state = preparedState_;
+  }
+  if (!state || state->playbackOrder.size() != entry.order.size())
+    return;
+  undo_.push_back({gen_, state->playbackOrder, currentSelection});
+
+  if (entry.selectionToRestore)
+    pendingRestoreSelection_ = entry.selectionToRestore;
+
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->playbackOrder = std::move(entry.order);
+  applyNewPreparedState(std::move(newState));
+}
+
+std::optional<std::unordered_set<size_t>> CutShufflePluginProcessor::takePendingRestoreSelection()
+{
+  auto out = std::move(pendingRestoreSelection_);
+  pendingRestoreSelection_ = std::nullopt;
+  return out;
+}
+
+bool CutShufflePluginProcessor::canUndo() const
+{
+  for (auto it = undo_.rbegin(); it != undo_.rend(); ++it)
+    if (it->gen == gen_)
+      return true;
+  return false;
+}
+
+bool CutShufflePluginProcessor::canRedo() const
+{
+  for (auto it = redo_.rbegin(); it != redo_.rend(); ++it)
+    if (it->gen == gen_)
+      return true;
+  return false;
+}
+
 void CutShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float> buffer,
                                                          double sampleRate,
                                                          const juce::String& displayName,
@@ -214,6 +303,7 @@ void CutShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<f
   }
 
   applyNewPreparedState(std::move(state));
+  incrementGeneration();
 }
 
 void CutShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
@@ -274,6 +364,9 @@ void CutShufflePluginProcessor::clearSample()
     std::lock_guard lock(preparedStateMutex_);
     preparedState_.reset();
   }
+  undo_.clear();
+  redo_.clear();
+  incrementGeneration();
   setLoadStatus(LoadStatus::Idle);
   setLoadError({});
   {
@@ -353,6 +446,9 @@ void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>
     for (size_t i = 0; i < positions.size(); ++i)
       newOrder[positions[i]] = physAtSelected[shuffledOrder[i]];
 
+    if (newOrder == state->playbackOrder)
+      return;
+    pushUndoEntry(state->playbackOrder);
     auto newState = std::make_shared<PreparedState>(*state);
     newState->playbackOrder = std::move(newOrder);
     applyNewPreparedState(std::move(newState));
@@ -399,6 +495,9 @@ void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>
     newOrder[dstLogical] = srcPhys;
   }
 
+  if (newOrder == state->playbackOrder)
+    return;
+  pushUndoEntry(state->playbackOrder);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(newOrder);
 
@@ -491,6 +590,9 @@ std::vector<size_t> CutShufflePluginProcessor::moveSelectedSlicesInOrder(
     }
   }
 
+  if (order == state->playbackOrder)
+    return {};
+  pushUndoEntry(state->playbackOrder, selectedPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = order;
 
@@ -895,6 +997,9 @@ void CutShufflePluginProcessor::resetArrangement()
   std::vector<size_t> identityOrder(n);
   std::iota(identityOrder.begin(), identityOrder.end(), size_t(0));
 
+  if (state->playbackOrder == identityOrder)
+    return;
+  pushUndoEntry(state->playbackOrder);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(identityOrder);
 

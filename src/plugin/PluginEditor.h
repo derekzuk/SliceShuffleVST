@@ -43,6 +43,8 @@ private:
   juce::TextButton rearrangeButton_;
   juce::TextButton previewButton_;
   juce::TextButton exportButton_;
+  juce::TextButton undoButton_;
+  juce::TextButton redoButton_;
   juce::File lastLoadedPath_;
   juce::int64 regenerateScheduledAt_{0};
   int lastGranularityIndex_{1};  // 1 = "1/2 beat" default

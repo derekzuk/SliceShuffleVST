@@ -18,6 +18,22 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
   controlPanelViewport_.setViewedComponent(&controlPanel_, false);
   controlPanelViewport_.setScrollBarsShown(false, false);
   addAndMakeVisible(controlPanelViewport_);
+  undoButton_.setButtonText("Undo");
+  addAndMakeVisible(undoButton_);
+  undoButton_.onClick = [this]()
+  {
+    processorRef.undo(waveformView_.getSelectedSliceIndices());
+    if (auto sel = processorRef.takePendingRestoreSelection())
+      waveformView_.setSelectedSliceIndices(std::move(*sel));
+  };
+  redoButton_.setButtonText("Redo");
+  addAndMakeVisible(redoButton_);
+  redoButton_.onClick = [this]()
+  {
+    processorRef.redo(waveformView_.getSelectedSliceIndices());
+    if (auto sel = processorRef.takePendingRestoreSelection())
+      waveformView_.setSelectedSliceIndices(std::move(*sel));
+  };
   rearrangeButton_.setButtonText("Rearrange");
   addAndMakeVisible(rearrangeButton_);
   rearrangeButton_.onClick = [this]()
@@ -116,6 +132,32 @@ bool CutShufflePluginEditor::keyPressed(const juce::KeyPress& key)
     }
     return true;
   }
+  if (key.getModifiers().isCommandDown() || key.getModifiers().isCtrlDown())
+  {
+    if (key.getKeyCode() == 'z')
+    {
+      if (key.getModifiers().isShiftDown())
+      {
+        if (processorRef.canRedo())
+        {
+          processorRef.redo(waveformView_.getSelectedSliceIndices());
+          if (auto sel = processorRef.takePendingRestoreSelection())
+            waveformView_.setSelectedSliceIndices(std::move(*sel));
+          return true;
+        }
+      }
+      else
+      {
+        if (processorRef.canUndo())
+        {
+          processorRef.undo(waveformView_.getSelectedSliceIndices());
+          if (auto sel = processorRef.takePendingRestoreSelection())
+            waveformView_.setSelectedSliceIndices(std::move(*sel));
+          return true;
+        }
+      }
+    }
+  }
   return false;
 }
 
@@ -138,6 +180,11 @@ void CutShufflePluginEditor::resized()
   controlPanelViewport_.setBounds(rightArea);
   controlPanel_.setSize(rightArea.getWidth(), 380);
   const int butW = 90;
+  const int undoRedoW = 56;
+  undoButton_.setBounds(bottomBar.removeFromLeft(undoRedoW).reduced(2));
+  bottomBar.removeFromLeft(2);
+  redoButton_.setBounds(bottomBar.removeFromLeft(undoRedoW).reduced(2));
+  bottomBar.removeFromLeft(4);
   rearrangeButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
   bottomBar.removeFromLeft(4);
   previewButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
@@ -153,6 +200,8 @@ void CutShufflePluginEditor::timerCallback()
   waveformOverview_.repaint();
   waveformView_.refresh();
   previewButton_.setButtonText(processorRef.isPreviewActive() ? "Stop" : "Preview");
+  undoButton_.setEnabled(processorRef.canUndo());
+  redoButton_.setEnabled(processorRef.canRedo());
 
   if (regenerateScheduledAt_ > 0 && juce::Time::getMillisecondCounter() >= regenerateScheduledAt_)
   {

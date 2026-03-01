@@ -3,8 +3,10 @@
 #include <JuceHeader.h>
 #include "PreparedState.h"
 #include <atomic>
+#include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <unordered_set>
 #include <vector>
@@ -108,6 +110,16 @@ public:
   /** Last triggered slice index (for UI readout); written from audio thread, read from UI. */
   std::atomic<int> lastTriggeredSliceIndex{-1};
 
+  /** Undo last arrangement change (playback order). Safe to call from message thread.
+   *  Pass current selection so it can be stored for redo; after return, call takePendingRestoreSelection() and apply to view if present. */
+  void undo(const std::unordered_set<size_t>& currentSelection);
+  /** Redo last undone arrangement change. Pass current selection for same reason. */
+  void redo(const std::unordered_set<size_t>& currentSelection);
+  bool canUndo() const;
+  bool canRedo() const;
+  /** If undo/redo restored a selection, returns it and clears; otherwise returns nullopt. Call from message thread after undo()/redo(). */
+  std::optional<std::unordered_set<size_t>> takePendingRestoreSelection();
+
 private:
   void applyNewPreparedState(std::shared_ptr<const PreparedState> state);
   void setLoadStatus(LoadStatus s);
@@ -121,6 +133,21 @@ private:
 
   // Helpers for non-destructive rearrange/preview.
   std::pair<size_t, size_t> getWindowSliceRange(const PreparedState& state) const;
+
+  // Undo/redo for arrangement (playback order) only. gen_ invalidates entries on load/regenerate.
+  struct UndoEntry {
+    uint64_t gen{0};
+    std::vector<size_t> order;
+    std::optional<std::unordered_set<size_t>> selectionToRestore;
+  };
+  static constexpr size_t kMaxUndoSteps = 50;
+  std::deque<UndoEntry> undo_;
+  std::deque<UndoEntry> redo_;
+  uint64_t gen_{0};
+  std::optional<std::unordered_set<size_t>> pendingRestoreSelection_;
+  void pushUndoEntry(std::vector<size_t> currentOrder,
+                    std::optional<std::unordered_set<size_t>> selectionToRestore = std::nullopt);
+  void incrementGeneration();
 
   juce::AudioProcessorValueTreeState apvts;
 

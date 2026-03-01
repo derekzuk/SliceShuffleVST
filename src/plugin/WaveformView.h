@@ -26,6 +26,12 @@ public:
 
   /** Returns the set of selected slice indices (shift+click). */
   const std::unordered_set<size_t>& getSelectedSliceIndices() const { return selectedSliceIndices_; }
+  /** Set selection (e.g. after undo/redo so highlight follows the slice). */
+  void setSelectedSliceIndices(std::unordered_set<size_t> indices)
+  {
+    selectedSliceIndices_ = std::move(indices);
+    repaint();
+  }
 
   /** Clear any slice selection (used on reset). */
   void clearSelection() { selectedSliceIndices_.clear(); repaint(); }

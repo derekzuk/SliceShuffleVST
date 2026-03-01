@@ -4,7 +4,6 @@ namespace {
 constexpr const char* kBpmId = "bpm";
 constexpr const char* kGranularityId = "granularity";
 constexpr const char* kWindowBeatsId = "windowBeats";
-constexpr const char* kWindowPositionId = "windowPosition";
 } // namespace
 
 ControlPanel::ControlPanel(CutShufflePluginProcessor& proc) : processor_(proc)
@@ -31,12 +30,6 @@ ControlPanel::ControlPanel(CutShufflePluginProcessor& proc) : processor_(proc)
   windowSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 40, 22);
   addAndMakeVisible(windowSlider_);
 
-  windowPositionLabel_.setText("Window Position", juce::dontSendNotification);
-  addAndMakeVisible(windowPositionLabel_);
-  windowPositionSlider_.setSliderStyle(juce::Slider::LinearHorizontal);
-  windowPositionSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 22);
-  addAndMakeVisible(windowPositionSlider_);
-
   auto& apvts = processor_.getValueTreeState();
   bpmAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
       apvts, kBpmId, bpmSlider_);
@@ -45,8 +38,6 @@ ControlPanel::ControlPanel(CutShufflePluginProcessor& proc) : processor_(proc)
           apvts, kGranularityId, granularityCombo_);
   windowAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
       apvts, kWindowBeatsId, windowSlider_);
-  windowPositionAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-      apvts, kWindowPositionId, windowPositionSlider_);
 }
 
 void ControlPanel::resized()
@@ -71,11 +62,6 @@ void ControlPanel::resized()
 
   leftLabel(windowLabel_, 88);   // "Window Size"
   windowSlider_.setBounds(row().reduced(2));
-  r.removeFromTop(4);
-
-  leftLabel(windowPositionLabel_, 105);   // "Window Position"
-  windowPositionSlider_.setBounds(row().reduced(2));
-  r.removeFromTop(4);
 }
 
 void ControlPanel::refreshReseedFromProcessor() {}

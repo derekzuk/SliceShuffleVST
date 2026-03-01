@@ -18,6 +18,61 @@ constexpr const char* kPlaybackOrderAttr = "playbackOrder";
 
 constexpr int kCurrentStateVersion = 1;
 
+// Micro fade at slice boundaries to avoid clicks (0.5–5 ms typical; 2 ms is a good default)
+constexpr double kSliceFadeMs = 2.0;
+
+/** Apply linear fade-in to first fadeInSamples and fade-out to last fadeOutSamples in buf. */
+void applySliceFades(juce::AudioBuffer<float>& buf, int startSample, int len,
+                    int fadeInSamples, int fadeOutSamples)
+{
+  if (len <= 0)
+    return;
+  fadeInSamples = juce::jmin(fadeInSamples, len);
+  fadeOutSamples = juce::jmin(fadeOutSamples, len);
+  const int numCh = buf.getNumChannels();
+  for (int ch = 0; ch < numCh; ++ch)
+  {
+    float* data = buf.getWritePointer(ch);
+    for (int i = 0; i < fadeInSamples; ++i)
+      data[startSample + i] *= (i + 1) / static_cast<float>(fadeInSamples);
+    for (int i = 0; i < fadeOutSamples; ++i)
+    {
+      const int idx = startSample + len - 1 - i;
+      data[idx] *= (i + 1) / static_cast<float>(fadeOutSamples);
+    }
+  }
+}
+
+/** Fade length in samples for a slice; clamped to half slice length. */
+int fadeSamplesForSlice(double sampleRate, size_t sliceLen)
+{
+  const int n = static_cast<int>(kSliceFadeMs * sampleRate / 1000.0);
+  return juce::jlimit(0, static_cast<int>(sliceLen / 2), n);
+}
+
+/** Apply fades to a segment that may be a partial slice (for renderSampleRangeToBuffer). */
+void applySliceFadesSegment(juce::AudioBuffer<float>& buf, int startSample, int len,
+                            size_t offsetInSliceStart, size_t sliceLen, int fadeSamples)
+{
+  if (len <= 0 || fadeSamples <= 0)
+    return;
+  const int numCh = buf.getNumChannels();
+  for (int ch = 0; ch < numCh; ++ch)
+  {
+    float* data = buf.getWritePointer(ch);
+    for (int i = 0; i < len; ++i)
+    {
+      const size_t posInSlice = offsetInSliceStart + static_cast<size_t>(i);
+      float gain = 1.0f;
+      if (posInSlice < static_cast<size_t>(fadeSamples))
+        gain = (static_cast<float>(posInSlice) + 1.0f) / static_cast<float>(fadeSamples);
+      else if (posInSlice >= sliceLen - static_cast<size_t>(fadeSamples) && sliceLen > static_cast<size_t>(fadeSamples))
+        gain = static_cast<float>(sliceLen - posInSlice) / static_cast<float>(fadeSamples);
+      data[startSample + i] *= gain;
+    }
+  }
+}
+
 // Beats per slice for each granularity index 0..4
 // Order: 1/4, 1/2, 1, 2, 4 beats
 constexpr double kBeatsPerSlice[] = {0.25, 0.5, 1.0, 2.0, 4.0};
@@ -807,6 +862,7 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const cutshuffle::Slice& sl = state->slices[static_cast<size_t>(v.sliceIndex)];
     const size_t sliceLen = sl.lengthSamples;
     const size_t start = sl.startSample;
+    const int fadeSamples = fadeSamplesForSlice(state->sampleRate, sliceLen);
 
     for (int i = 0; i < blockSamples; ++i)
     {
@@ -816,11 +872,17 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         break;
       }
 
+      float gain = 1.0f;
+      if (v.samplePosition < static_cast<size_t>(fadeSamples))
+        gain = (static_cast<float>(v.samplePosition) + 1.0f) / static_cast<float>(fadeSamples);
+      else if (v.samplePosition >= sliceLen - static_cast<size_t>(fadeSamples) && sliceLen > static_cast<size_t>(fadeSamples))
+        gain = static_cast<float>(sliceLen - v.samplePosition) / static_cast<float>(fadeSamples);
+
       const size_t srcSample = start + v.samplePosition;
       for (int ch = 0; ch < numOutCh; ++ch)
       {
         const int srcCh = std::min(ch, numSrcCh - 1);
-        const float sample = v.gain * state->buffer.getSample(srcCh, static_cast<int>(srcSample));
+        const float sample = v.gain * gain * state->buffer.getSample(srcCh, static_cast<int>(srcSample));
         buffer.addSample(ch, i, sample);
       }
       ++v.samplePosition;
@@ -1117,6 +1179,7 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
     const auto& sl = state.slices[srcIdx];
     const int len = static_cast<int>(sl.lengthSamples);
     const int srcStart = static_cast<int>(sl.startSample);
+    const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sl.lengthSamples);
     for (int ch = 0; ch < numCh; ++ch)
     {
       out.copyFrom(ch,
@@ -1126,6 +1189,7 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
                    srcStart,
                    len);
     }
+    applySliceFades(out, static_cast<int>(writePos), len, fadeSamples, fadeSamples);
     writePos += static_cast<size_t>(len);
   }
 }
@@ -1197,6 +1261,9 @@ void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& s
 
     const int srcStart = static_cast<int>(overlapStart);
     const int len = static_cast<int>(overlapEnd - overlapStart);
+    const size_t offsetInSliceStart = static_cast<size_t>(overlapStart - sliceStart);
+    const size_t sliceLen = sl.lengthSamples;
+    const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sliceLen);
     for (int ch = 0; ch < numCh; ++ch)
     {
       out.copyFrom(ch,
@@ -1206,6 +1273,7 @@ void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& s
                    srcStart,
                    len);
     }
+    applySliceFadesSegment(out, static_cast<int>(writePos), len, offsetInSliceStart, sliceLen, fadeSamples);
     writePos += static_cast<size_t>(len);
   }
 }

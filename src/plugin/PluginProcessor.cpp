@@ -308,6 +308,11 @@ void CutShufflePluginProcessor::regenerateSliceMap()
 
 void CutShufflePluginProcessor::rearrangeSample()
 {
+  rearrangeSample({});
+}
+
+void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>& selectedPositions)
+{
   std::shared_ptr<const PreparedState> state;
   {
     std::lock_guard lock(preparedStateMutex_);
@@ -319,12 +324,45 @@ void CutShufflePluginProcessor::rearrangeSample()
   if (state->slices.empty())
     return;
 
-  const auto [physStart, physEnd] = getWindowSliceRange(*state);
-  if (physEnd <= physStart)
-    return;
-
   const size_t totalSlices = state->slices.size();
   if (state->playbackOrder.size() != totalSlices)
+    return;
+
+  if (!selectedPositions.empty())
+  {
+    // Only shuffle the selected logical positions; leave others unchanged.
+    std::vector<size_t> positions(selectedPositions.begin(), selectedPositions.end());
+    std::sort(positions.begin(), positions.end());
+    // Remove any out-of-range
+    positions.erase(std::remove_if(positions.begin(), positions.end(),
+                                   [totalSlices](size_t p) { return p >= totalSlices; }),
+                    positions.end());
+    if (positions.size() <= 1)
+      return;
+
+    std::vector<size_t> physAtSelected;
+    physAtSelected.reserve(positions.size());
+    for (size_t p : positions)
+      physAtSelected.push_back(state->playbackOrder[p]);
+
+    const uint32_t seed = static_cast<uint32_t>(juce::Random::getSystemRandom().nextInt(1000000));
+    const std::vector<size_t> shuffledOrder =
+        cutshuffle::CutShuffleEngine::shuffledSliceOrder(physAtSelected.size(), seed, true);
+
+    std::vector<size_t> newOrder = state->playbackOrder;
+    for (size_t i = 0; i < positions.size(); ++i)
+      newOrder[positions[i]] = physAtSelected[shuffledOrder[i]];
+
+    auto newState = std::make_shared<PreparedState>(*state);
+    newState->playbackOrder = std::move(newOrder);
+    applyNewPreparedState(std::move(newState));
+    apvts.getParameterAsValue(kSeedId).setValue(static_cast<int>(seed));
+    return;
+  }
+
+  // No selection: shuffle within current window (existing behaviour)
+  const auto [physStart, physEnd] = getWindowSliceRange(*state);
+  if (physEnd <= physStart)
     return;
 
   // Collect physical slice indices that lie inside the window.

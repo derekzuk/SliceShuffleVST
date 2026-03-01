@@ -20,7 +20,14 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
   addAndMakeVisible(controlPanelViewport_);
   rearrangeButton_.setButtonText("Rearrange");
   addAndMakeVisible(rearrangeButton_);
-  rearrangeButton_.onClick = [this]() { processorRef.rearrangeSample(); };
+  rearrangeButton_.onClick = [this]()
+  {
+    const auto& sel = waveformView_.getSelectedSliceIndices();
+    if (!sel.empty())
+      processorRef.rearrangeSample(sel);
+    else
+      processorRef.rearrangeSample();
+  };
   previewButton_.setButtonText("Preview");
   addAndMakeVisible(previewButton_);
   previewButton_.onClick = [this]()

@@ -80,8 +80,11 @@ public:
   /** Regenerate slice map for current BPM/granularity/seed (async). */
   void regenerateSliceMap();
 
-  /** Rearrange the sample: shuffle slice order and write it into the buffer (waveform updates). */
+  /** Rearrange the sample: shuffle slice order and write it into the buffer (waveform updates).
+   *  When selectedPositions is non-empty, only those logical positions are shuffled among themselves;
+   *  when empty (or no-arg), shuffles all slices in the current window. */
   void rearrangeSample();
+  void rearrangeSample(const std::unordered_set<size_t>& selectedPositions);
 
   /** Move selected slices in playback order and update waveform. direction: -1 = left, +1 = right.
    *  selectedPositions = visual slice indices (positions) the user selected. Returns new order if changed. */

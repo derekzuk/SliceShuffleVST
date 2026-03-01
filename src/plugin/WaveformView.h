@@ -14,6 +14,7 @@ public:
   void resized() override;
   void mouseDown(const juce::MouseEvent& e) override;
   void mouseDrag(const juce::MouseEvent& e) override;
+  void mouseUp(const juce::MouseEvent& e) override;
   bool keyPressed(const juce::KeyPress& key) override;
   void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
@@ -23,7 +24,7 @@ public:
   /** Set the window range to display (used during overview drag for live sync). Pass start < 0 to clear. */
   void setDisplayWindowOverride(juce::int64 startSample, juce::int64 endSample);
 
-  /** Returns the set of selected slice indices (control+click). */
+  /** Returns the set of selected slice indices (shift+click). */
   const std::unordered_set<size_t>& getSelectedSliceIndices() const { return selectedSliceIndices_; }
 
   /** Clear any slice selection (used on reset). */
@@ -32,12 +33,15 @@ public:
 private:
   /** Given mouse x in component coords, return slice index under cursor or -1. */
   int sliceIndexAt(float x) const;
+  /** All slice indices that overlap the horizontal range [x0, x1] (component coords). */
+  std::unordered_set<size_t> sliceIndicesInXRange(float x0, float x1) const;
 
   static constexpr int kDragStartThresholdPx = 5;
 
   CutShufflePluginProcessor& processor_;
   juce::Point<int> dragStartPos_;
   bool dragStarted_{false};
+  bool shiftDragActive_{false};
   std::unordered_set<size_t> selectedSliceIndices_;
   /** When valid (overrideStart_ >= 0), bottom view shows this range (raw waveform) for live overview drag. */
   juce::int64 overrideStart_{-1};

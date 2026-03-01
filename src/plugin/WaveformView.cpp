@@ -169,23 +169,41 @@ int WaveformView::sliceIndexAt(float x) const
   return -1;
 }
 
+std::unordered_set<size_t> WaveformView::sliceIndicesInXRange(float x0, float x1) const
+{
+  std::unordered_set<size_t> out;
+  auto state = processor_.getPreparedState();
+  if (!state || state->slices.empty() || state->lengthInSamples <= 0)
+    return out;
+  const float width = static_cast<float>(getWidth());
+  if (width <= 0.0f) return out;
+  auto [rangeStart, rangeEnd] = processor_.getWindowRangeSnappedToSlices(*state);
+  const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
+  if (rangeLength <= 0) return out;
+  const float xLo = juce::jmin(x0, x1);
+  const float xHi = juce::jmax(x0, x1);
+  const juce::int64 sampleLo = rangeStart + static_cast<juce::int64>((xLo / width) * static_cast<float>(rangeLength));
+  const juce::int64 sampleHi = rangeStart + static_cast<juce::int64>((xHi / width) * static_cast<float>(rangeLength));
+  for (size_t i = 0; i < state->slices.size(); ++i)
+  {
+    const auto& sl = state->slices[i];
+    const juce::int64 sliceStart = static_cast<juce::int64>(sl.startSample);
+    const juce::int64 sliceEnd = sliceStart + static_cast<juce::int64>(sl.lengthSamples);
+    if (sliceEnd > sampleLo && sliceStart < sampleHi)
+      out.insert(i);
+  }
+  return out;
+}
+
 void WaveformView::mouseDown(const juce::MouseEvent& e)
 {
   dragStartPos_ = e.getPosition();
   dragStarted_ = false;
+  shiftDragActive_ = false;
 
-  if (e.mods.isCtrlDown() || e.mods.isCommandDown())
+  if (e.mods.isShiftDown())
   {
-    const int idx = sliceIndexAt(static_cast<float>(e.getPosition().getX()));
-    if (idx >= 0)
-    {
-      const size_t u = static_cast<size_t>(idx);
-      if (selectedSliceIndices_.count(u))
-        selectedSliceIndices_.erase(u);
-      else
-        selectedSliceIndices_.insert(u);
-      repaint();
-    }
+    // Don't toggle here; we'll either do shift-drag selection in mouseDrag or single-toggle in mouseUp
   }
   else
     grabKeyboardFocus();
@@ -203,9 +221,7 @@ bool WaveformView::keyPressed(const juce::KeyPress& key)
   }
   if (selectedSliceIndices_.empty())
     return false;
-  // Shift+Left / Shift+Right: swap selected slice(s) with neighbour; highlight follows the moved slice
-  if (!key.getModifiers().isShiftDown())
-    return false;
+  // Left / Right: move selected slice(s) in playback order; highlight follows the moved slice
   const int direction = key.getKeyCode() == juce::KeyPress::rightKey ? 1
                         : key.getKeyCode() == juce::KeyPress::leftKey ? -1
                                                                       : 0;
@@ -232,6 +248,18 @@ bool WaveformView::keyPressed(const juce::KeyPress& key)
 
 void WaveformView::mouseDrag(const juce::MouseEvent& e)
 {
+  if (e.mods.isShiftDown())
+  {
+    if (e.getDistanceFromDragStart() >= kDragStartThresholdPx)
+    {
+      shiftDragActive_ = true;
+      const float x0 = static_cast<float>(dragStartPos_.getX());
+      const float x1 = static_cast<float>(e.getPosition().getX());
+      selectedSliceIndices_ = sliceIndicesInXRange(x0, x1);
+      repaint();
+    }
+    return;
+  }
   if (dragStarted_)
     return;
   if (e.getDistanceFromDragStart() < kDragStartThresholdPx)
@@ -244,6 +272,24 @@ void WaveformView::mouseDrag(const juce::MouseEvent& e)
     return;
   dragStarted_ = true;
   container->startDragging(juce::var(kCutShuffleExportDragType), this, juce::ScaledImage(), true);
+}
+
+void WaveformView::mouseUp(const juce::MouseEvent& e)
+{
+  if (e.mods.isShiftDown() && !shiftDragActive_)
+  {
+    const int idx = sliceIndexAt(static_cast<float>(e.getPosition().getX()));
+    if (idx >= 0)
+    {
+      const size_t u = static_cast<size_t>(idx);
+      if (selectedSliceIndices_.count(u))
+        selectedSliceIndices_.erase(u);
+      else
+        selectedSliceIndices_.insert(u);
+      repaint();
+    }
+  }
+  shiftDragActive_ = false;
 }
 
 void WaveformView::changeListenerCallback(juce::ChangeBroadcaster*)

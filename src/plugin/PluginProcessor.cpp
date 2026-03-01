@@ -928,6 +928,40 @@ std::pair<size_t, size_t> CutShufflePluginProcessor::getWindowSliceRange(const P
   return {firstSlice, lastSlice + 1}; // [start, end)
 }
 
+std::pair<size_t, size_t> CutShufflePluginProcessor::getWindowLogicalPositionRange(
+    const PreparedState& state) const
+{
+  auto [windowStart, windowEnd] = getWindowRangeSnappedToSlices(state);
+  if (windowEnd <= windowStart)
+    return {0, state.playbackOrder.size() > 0 ? state.playbackOrder.size() - 1 : 0};
+
+  const size_t n = state.playbackOrder.size();
+  if (state.slices.empty() || n == 0)
+    return {0, 0};
+
+  juce::int64 cumStart = 0;
+  size_t minLogical = n;
+  size_t maxLogical = 0;
+  for (size_t logical = 0; logical < n; ++logical)
+  {
+    const size_t phys = state.playbackOrder[logical];
+    if (phys >= state.slices.size())
+      continue;
+    const juce::int64 len = static_cast<juce::int64>(state.slices[phys].lengthSamples);
+    const juce::int64 cumEnd = cumStart + len;
+    if (cumEnd > windowStart && cumStart < windowEnd)
+    {
+      if (minLogical > logical)
+        minLogical = logical;
+      maxLogical = logical;
+    }
+    cumStart = cumEnd;
+  }
+  if (minLogical > maxLogical)
+    return {0, n > 0 ? n - 1 : 0};
+  return {minLogical, maxLogical};
+}
+
 void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
                                                  juce::AudioBuffer<float>& out) const
 {

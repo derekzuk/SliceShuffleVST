@@ -102,6 +102,9 @@ public:
   std::pair<juce::int64, juce::int64> getWindowRangeSnappedToSlices() const;
   std::pair<juce::int64, juce::int64> getWindowRangeSnappedToSlices(const PreparedState& state) const;
 
+  /** Logical position range [min, max] (inclusive) of the current window. Positions outside the window are not visible in the bottom view. */
+  std::pair<size_t, size_t> getWindowLogicalPositionRange(const PreparedState& state) const;
+
   /** Last triggered slice index (for UI readout); written from audio thread, read from UI. */
   std::atomic<int> lastTriggeredSliceIndex{-1};
 

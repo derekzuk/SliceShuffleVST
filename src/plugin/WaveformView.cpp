@@ -1,4 +1,5 @@
 #include "WaveformView.h"
+#include <algorithm>
 #include <vector>
 
 namespace {
@@ -227,11 +228,35 @@ bool WaveformView::keyPressed(const juce::KeyPress& key)
                                                                       : 0;
   if (direction == 0)
     return false;
+  const size_t numSlices = static_cast<size_t>(processor_.getNumSlices());
+  size_t windowLeft = 0;
+  size_t windowRight = numSlices > 0 ? numSlices - 1 : 0;
+  if (auto state = processor_.getPreparedState())
+  {
+    const auto [wLeft, wRight] = processor_.getWindowLogicalPositionRange(*state);
+    windowLeft = wLeft;
+    windowRight = wRight;
+  }
+  // Don't move left if the leftmost selected slice is at the left edge of the window
+  if (direction < 0)
+  {
+    const size_t leftmost = *std::min_element(
+        selectedSliceIndices_.begin(), selectedSliceIndices_.end());
+    if (leftmost <= windowLeft)
+      return true; // consume key, no move
+  }
+  // Don't move right if the rightmost selected slice is at the right edge of the window
+  if (direction > 0)
+  {
+    const size_t rightmost = *std::max_element(
+        selectedSliceIndices_.begin(), selectedSliceIndices_.end());
+    if (rightmost >= windowRight)
+      return true; // consume key, no move
+  }
   processor_.moveSelectedSlicesInOrder(selectedSliceIndices_, direction);
 
   // Highlight follows the slice; at left/right boundary keep selection (same as other side)
   std::unordered_set<size_t> newSel;
-  const size_t numSlices = static_cast<size_t>(processor_.getNumSlices());
   for (size_t p : selectedSliceIndices_)
   {
     const size_t nxt = (direction > 0) ? p + 1 : (p > 0 ? p - 1 : p);

@@ -44,6 +44,14 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
     else
       processorRef.rearrangeSample();
   };
+  silenceButton_.setButtonText("Silence");
+  addAndMakeVisible(silenceButton_);
+  silenceButton_.onClick = [this]()
+  {
+    const auto& sel = waveformView_.getSelectedSliceIndices();
+    if (!sel.empty())
+      processorRef.silenceSelectedSlices(sel);
+  };
   previewButton_.setButtonText("Preview");
   addAndMakeVisible(previewButton_);
   previewButton_.onClick = [this]()
@@ -179,13 +187,15 @@ void CutShufflePluginEditor::resized()
   r.removeFromRight(4);
   controlPanelViewport_.setBounds(rightArea);
   controlPanel_.setSize(rightArea.getWidth(), 380);
-  const int butW = 90;
+  const int butW = 80;
   const int undoRedoW = 56;
   undoButton_.setBounds(bottomBar.removeFromLeft(undoRedoW).reduced(2));
   bottomBar.removeFromLeft(2);
   redoButton_.setBounds(bottomBar.removeFromLeft(undoRedoW).reduced(2));
   bottomBar.removeFromLeft(4);
   rearrangeButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
+  bottomBar.removeFromLeft(4);
+  silenceButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
   bottomBar.removeFromLeft(4);
   previewButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
   bottomBar.removeFromLeft(4);

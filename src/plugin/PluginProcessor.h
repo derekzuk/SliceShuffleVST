@@ -93,6 +93,9 @@ public:
   std::vector<size_t> moveSelectedSlicesInOrder(const std::unordered_set<size_t>& selectedPositions,
                                                 int direction);
 
+  /** Toggle silence (non-destructive mute) for the given logical positions (indices into playbackOrder). */
+  void silenceSelectedSlices(const std::unordered_set<size_t>& selectedPositions);
+
   /** Play the loaded sample from the start for 5 seconds (from UI). */
   void startPreview();
   /** Stop preview playback (from UI). */

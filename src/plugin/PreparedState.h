@@ -4,6 +4,7 @@
 #include "../dsp/CutShuffleEngine.h"
 #include <vector>
 #include <cstddef>
+#include <unordered_set>
 
 /** Immutable state prepared on background thread; swapped into processor. */
 struct PreparedState {
@@ -13,4 +14,6 @@ struct PreparedState {
   std::vector<cutshuffle::Slice> slices;
   /** Playback order: order[i] = source slice index for position i. */
   std::vector<size_t> playbackOrder;
+  /** Logical positions (indices into playbackOrder) that should be treated as silent (non-destructive mute). */
+  std::unordered_set<size_t> mutedLogicalPositions;
 };

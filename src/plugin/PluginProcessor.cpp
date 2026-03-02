@@ -561,6 +561,44 @@ void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>
   apvts.getParameterAsValue(kSeedId).setValue(static_cast<int>(seed));
 }
 
+void CutShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
+{
+  if (selectedPositions.empty())
+    return;
+
+  std::shared_ptr<const PreparedState> state;
+  {
+    std::lock_guard lock(preparedStateMutex_);
+    state = preparedState_;
+  }
+  if (!state)
+    return;
+
+  const size_t totalPositions = state->playbackOrder.size();
+  if (totalPositions == 0)
+    return;
+
+  // Build new muted set by toggling the given logical positions (indices into playbackOrder).
+  std::unordered_set<size_t> newMuted = state->mutedLogicalPositions;
+  bool anyChange = false;
+  for (size_t pos : selectedPositions)
+  {
+    if (pos >= totalPositions)
+      continue;
+    if (newMuted.erase(pos) == 0)
+    {
+      newMuted.insert(pos);
+    }
+    anyChange = true;
+  }
+  if (!anyChange || newMuted == state->mutedLogicalPositions)
+    return;
+
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->mutedLogicalPositions = std::move(newMuted);
+  applyNewPreparedState(std::move(newState));
+}
+
 std::vector<size_t> CutShufflePluginProcessor::moveSelectedSlicesInOrder(
     const std::unordered_set<size_t>& selectedPositions, int direction)
 {
@@ -790,6 +828,7 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
   const int numOutCh = buffer.getNumChannels();
   const int numSrcCh = state->buffer.getNumChannels();
   const size_t numSlices = state->slices.size();
+  const auto& muted = state->mutedLogicalPositions;
 
   // Handle MIDI
   for (const auto midi : midiMessages)
@@ -800,6 +839,10 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
       const int midiNote = msg.getNoteNumber();
       const int sliceIndex = midiNote - rootNote;
       if (sliceIndex < 0 || sliceIndex >= static_cast<int>(numSlices))
+        continue;
+
+      // Non-destructive mute: skip starting voices for muted logical positions.
+      if (!muted.empty() && muted.count(static_cast<size_t>(sliceIndex)) != 0)
         continue;
 
       lastTriggeredSliceIndex.store(sliceIndex);
@@ -1180,16 +1223,24 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
     const int len = static_cast<int>(sl.lengthSamples);
     const int srcStart = static_cast<int>(sl.startSample);
     const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sl.lengthSamples);
-    for (int ch = 0; ch < numCh; ++ch)
+
+    const bool isMuted = !state.mutedLogicalPositions.empty() &&
+                         state.mutedLogicalPositions.count(logical) != 0;
+
+    if (!isMuted)
     {
-      out.copyFrom(ch,
-                   static_cast<int>(writePos),
-                   state.buffer,
-                   ch,
-                   srcStart,
-                   len);
+      for (int ch = 0; ch < numCh; ++ch)
+      {
+        out.copyFrom(ch,
+                     static_cast<int>(writePos),
+                     state.buffer,
+                     ch,
+                     srcStart,
+                     len);
+      }
+      applySliceFades(out, static_cast<int>(writePos), len, fadeSamples, fadeSamples);
     }
-    applySliceFades(out, static_cast<int>(writePos), len, fadeSamples, fadeSamples);
+    // Always advance writePos so timing/layout stays the same, even if muted (silence).
     writePos += static_cast<size_t>(len);
   }
 }
@@ -1264,16 +1315,21 @@ void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& s
     const size_t offsetInSliceStart = static_cast<size_t>(overlapStart - sliceStart);
     const size_t sliceLen = sl.lengthSamples;
     const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sliceLen);
-    for (int ch = 0; ch < numCh; ++ch)
+    const bool isMuted = !state.mutedLogicalPositions.empty() &&
+                         state.mutedLogicalPositions.count(logical) != 0;
+    if (!isMuted)
     {
-      out.copyFrom(ch,
-                   static_cast<int>(writePos),
-                   state.buffer,
-                   ch,
-                   srcStart,
-                   len);
+      for (int ch = 0; ch < numCh; ++ch)
+      {
+        out.copyFrom(ch,
+                     static_cast<int>(writePos),
+                     state.buffer,
+                     ch,
+                     srcStart,
+                     len);
+      }
+      applySliceFadesSegment(out, static_cast<int>(writePos), len, offsetInSliceStart, sliceLen, fadeSamples);
     }
-    applySliceFadesSegment(out, static_cast<int>(writePos), len, offsetInSliceStart, sliceLen, fadeSamples);
     writePos += static_cast<size_t>(len);
   }
 }

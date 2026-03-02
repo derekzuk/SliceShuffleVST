@@ -12,8 +12,8 @@ struct PreparedState {
   double sampleRate{0};
   juce::int64 lengthInSamples{0};
   std::vector<cutshuffle::Slice> slices;
-  /** Playback order: order[i] = source slice index for position i. */
+  /** Playback order: order[i] = source (physical) slice index for logical position i. */
   std::vector<size_t> playbackOrder;
-  /** Logical positions (indices into playbackOrder) that should be treated as silent (non-destructive mute). */
-  std::unordered_set<size_t> mutedLogicalPositions;
+  /** Physical slice indices (into slices) that should be treated as silent (non-destructive mute). */
+  std::unordered_set<size_t> mutedSliceIndices;
 };

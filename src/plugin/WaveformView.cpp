@@ -375,6 +375,8 @@ void WaveformView::mouseUp(const juce::MouseEvent& e)
         selectedSliceIndices_.erase(u);
       else
         selectedSliceIndices_.insert(u);
+      // Ensure arrow keys work immediately after any click selection.
+      grabKeyboardFocus();
       repaint();
     }
   }

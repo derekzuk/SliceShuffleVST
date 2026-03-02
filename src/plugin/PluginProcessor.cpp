@@ -578,24 +578,27 @@ void CutShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set<s
   if (totalPositions == 0)
     return;
 
-  // Build new muted set by toggling the given logical positions (indices into playbackOrder).
-  std::unordered_set<size_t> newMuted = state->mutedLogicalPositions;
+  // Build new muted set by toggling the physical slice indices currently at the given logical positions.
+  std::unordered_set<size_t> newMuted = state->mutedSliceIndices;
   bool anyChange = false;
   for (size_t pos : selectedPositions)
   {
     if (pos >= totalPositions)
       continue;
-    if (newMuted.erase(pos) == 0)
+    const size_t phys = state->playbackOrder[pos];
+    if (phys >= state->slices.size())
+      continue;
+    if (newMuted.erase(phys) == 0)
     {
-      newMuted.insert(pos);
+      newMuted.insert(phys);
     }
     anyChange = true;
   }
-  if (!anyChange || newMuted == state->mutedLogicalPositions)
+  if (!anyChange || newMuted == state->mutedSliceIndices)
     return;
 
   auto newState = std::make_shared<PreparedState>(*state);
-  newState->mutedLogicalPositions = std::move(newMuted);
+  newState->mutedSliceIndices = std::move(newMuted);
   applyNewPreparedState(std::move(newState));
 }
 
@@ -828,7 +831,7 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
   const int numOutCh = buffer.getNumChannels();
   const int numSrcCh = state->buffer.getNumChannels();
   const size_t numSlices = state->slices.size();
-  const auto& muted = state->mutedLogicalPositions;
+  const auto& mutedSlices = state->mutedSliceIndices;
 
   // Handle MIDI
   for (const auto midi : midiMessages)
@@ -841,10 +844,6 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
       if (sliceIndex < 0 || sliceIndex >= static_cast<int>(numSlices))
         continue;
 
-      // Non-destructive mute: skip starting voices for muted logical positions.
-      if (!muted.empty() && muted.count(static_cast<size_t>(sliceIndex)) != 0)
-        continue;
-
       lastTriggeredSliceIndex.store(sliceIndex);
 
       const size_t orderIndex = static_cast<size_t>(sliceIndex);
@@ -852,6 +851,10 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
           ? state->playbackOrder[orderIndex]
           : orderIndex;
       if (srcSliceIdx >= state->slices.size())
+        continue;
+
+      // Non-destructive mute: skip starting voices for muted physical slices.
+      if (!mutedSlices.empty() && mutedSlices.count(srcSliceIdx) != 0)
         continue;
 
       const float vel = msg.getFloatVelocity();
@@ -1102,11 +1105,12 @@ void CutShufflePluginProcessor::resetArrangement()
   std::vector<size_t> identityOrder(n);
   std::iota(identityOrder.begin(), identityOrder.end(), size_t(0));
 
-  if (state->playbackOrder == identityOrder)
+  if (state->playbackOrder == identityOrder && state->mutedSliceIndices.empty())
     return;
   pushUndoEntry(state->playbackOrder);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(identityOrder);
+  newState->mutedSliceIndices.clear();
 
   applyNewPreparedState(std::move(newState));
 }
@@ -1224,8 +1228,8 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
     const int srcStart = static_cast<int>(sl.startSample);
     const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sl.lengthSamples);
 
-    const bool isMuted = !state.mutedLogicalPositions.empty() &&
-                         state.mutedLogicalPositions.count(logical) != 0;
+    const bool isMuted = !state.mutedSliceIndices.empty() &&
+                         state.mutedSliceIndices.count(srcIdx) != 0;
 
     if (!isMuted)
     {
@@ -1315,8 +1319,8 @@ void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& s
     const size_t offsetInSliceStart = static_cast<size_t>(overlapStart - sliceStart);
     const size_t sliceLen = sl.lengthSamples;
     const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sliceLen);
-    const bool isMuted = !state.mutedLogicalPositions.empty() &&
-                         state.mutedLogicalPositions.count(logical) != 0;
+    const bool isMuted = !state.mutedSliceIndices.empty() &&
+                         state.mutedSliceIndices.count(srcIdx) != 0;
     if (!isMuted)
     {
       for (int ch = 0; ch < numCh; ++ch)

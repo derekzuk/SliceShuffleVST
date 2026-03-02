@@ -96,6 +96,11 @@ public:
   /** Toggle silence (non-destructive mute) for the given logical positions (indices into playbackOrder). */
   void silenceSelectedSlices(const std::unordered_set<size_t>& selectedPositions);
 
+  /** Duplicate selected logical positions and insert the duplicates immediately to the right of the
+   *  rightmost selected position. Overall number of logical positions (playbackOrder.size()) is
+   *  kept constant; duplicates overwrite slices at the far right of the sequence if needed. */
+  void duplicateSelectedSlices(const std::unordered_set<size_t>& selectedPositions);
+
   /** Play the loaded sample from the start for 5 seconds (from UI). */
   void startPreview();
   /** Stop preview playback (from UI). */

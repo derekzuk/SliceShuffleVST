@@ -52,6 +52,14 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
     if (!sel.empty())
       processorRef.silenceSelectedSlices(sel);
   };
+  duplicateButton_.setButtonText("Duplicate");
+  addAndMakeVisible(duplicateButton_);
+  duplicateButton_.onClick = [this]()
+  {
+    const auto& sel = waveformView_.getSelectedSliceIndices();
+    if (!sel.empty())
+      processorRef.duplicateSelectedSlices(sel);
+  };
   previewButton_.setButtonText("Preview");
   addAndMakeVisible(previewButton_);
   previewButton_.onClick = [this]()
@@ -187,7 +195,7 @@ void CutShufflePluginEditor::resized()
   r.removeFromRight(4);
   controlPanelViewport_.setBounds(rightArea);
   controlPanel_.setSize(rightArea.getWidth(), 380);
-  const int butW = 80;
+  const int butW = 72;
   const int undoRedoW = 56;
   undoButton_.setBounds(bottomBar.removeFromLeft(undoRedoW).reduced(2));
   bottomBar.removeFromLeft(2);
@@ -196,6 +204,8 @@ void CutShufflePluginEditor::resized()
   rearrangeButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
   bottomBar.removeFromLeft(4);
   silenceButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
+  bottomBar.removeFromLeft(4);
+  duplicateButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
   bottomBar.removeFromLeft(4);
   previewButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
   bottomBar.removeFromLeft(4);

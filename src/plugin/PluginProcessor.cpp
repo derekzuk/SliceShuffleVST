@@ -602,6 +602,112 @@ void CutShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set<s
   applyNewPreparedState(std::move(newState));
 }
 
+void CutShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
+{
+  if (selectedPositions.empty())
+    return;
+
+  std::shared_ptr<const PreparedState> state;
+  {
+    std::lock_guard lock(preparedStateMutex_);
+    state = preparedState_;
+  }
+  if (!state)
+    return;
+
+  const size_t n = state->playbackOrder.size();
+  if (n == 0 || state->slices.empty())
+    return;
+
+  // Limit duplication to the current window so we push slices off the right side of the window,
+  // not the whole sequence.
+  const auto [windowLeft, windowRight] = getWindowLogicalPositionRange(*state);
+  if (windowRight < windowLeft || windowLeft >= n)
+    return;
+  const size_t wLeft = windowLeft;
+  const size_t wRight = std::min(windowRight, n - 1);
+  const size_t windowSize = (wRight >= wLeft) ? (wRight - wLeft + 1) : 0;
+  if (windowSize == 0)
+    return;
+
+  // Collect selected logical positions within [wLeft, wRight].
+  std::vector<size_t> positions;
+  positions.reserve(selectedPositions.size());
+  for (size_t i = wLeft; i <= wRight; ++i)
+  {
+    if (selectedPositions.count(i) != 0)
+      positions.push_back(i);
+  }
+  if (positions.empty())
+    return;
+
+  std::sort(positions.begin(), positions.end());
+  positions.erase(std::unique(positions.begin(), positions.end()), positions.end());
+
+  const size_t rightmost = positions.back();
+  if (rightmost > wRight)
+    return;
+
+  // Physical indices to duplicate, in the order of the logical positions.
+  std::vector<size_t> dupPhys;
+  dupPhys.reserve(positions.size());
+  for (size_t p : positions)
+  {
+    const size_t phys = state->playbackOrder[p];
+    if (phys < state->slices.size())
+      dupPhys.push_back(phys);
+  }
+  if (dupPhys.empty())
+    return;
+
+  const size_t m = dupPhys.size();
+
+  // Build new playback order, but only modify the current window segment [wLeft, wRight].
+  std::vector<size_t> newOrder = state->playbackOrder;
+
+  // Within the window, we keep the same number of positions (windowSize).
+  // Layout inside window:
+  //  [ wLeft .. rightmost ]  +  [duplicates]  +  [remaining tail up to window end]
+  const size_t prefixLen = (rightmost >= wLeft) ? (rightmost - wLeft + 1) : 0;
+  if (prefixLen > windowSize)
+    return;
+
+  const size_t maxDupInsideWindow = (windowSize > prefixLen) ? (windowSize - prefixLen) : 0;
+  const size_t dupCount = std::min(m, maxDupInsideWindow);
+  const size_t suffixLen = windowSize - prefixLen - dupCount;
+
+  std::vector<size_t> newWindow;
+  newWindow.reserve(windowSize);
+
+  // 1) Prefix: existing slices from window start up to and including rightmost selected.
+  for (size_t i = 0; i < prefixLen; ++i)
+    newWindow.push_back(state->playbackOrder[wLeft + i]);
+
+  // 2) Duplicates: physical slices of selected positions.
+  for (size_t i = 0; i < dupCount; ++i)
+    newWindow.push_back(dupPhys[i]);
+
+  // 3) Suffix: keep as much of the original tail inside the window as fits.
+  const size_t tailStart = rightmost + 1;
+  for (size_t i = 0; i < suffixLen && (tailStart + i) <= wRight; ++i)
+    newWindow.push_back(state->playbackOrder[tailStart + i]);
+
+  if (newWindow.size() != windowSize)
+    return;
+
+  // Write back modified window into newOrder.
+  for (size_t i = 0; i < windowSize; ++i)
+    newOrder[wLeft + i] = newWindow[i];
+
+  if (newOrder == state->playbackOrder)
+    return;
+
+  pushUndoEntry(state->playbackOrder, selectedPositions);
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->playbackOrder = std::move(newOrder);
+  applyNewPreparedState(std::move(newState));
+}
+
 std::vector<size_t> CutShufflePluginProcessor::moveSelectedSlicesInOrder(
     const std::unordered_set<size_t>& selectedPositions, int direction)
 {

@@ -1288,15 +1288,15 @@ std::pair<size_t, size_t> CutShufflePluginProcessor::getWindowLogicalPositionRan
 void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
                                                  juce::AudioBuffer<float>& out) const
 {
-  const auto [physStart, physEnd] = getWindowSliceRange(state);
-  if (physEnd <= physStart)
+  const size_t totalSlices = state.slices.size();
+  if (state.playbackOrder.size() != totalSlices)
   {
     out.setSize(0, 0);
     return;
   }
 
-  const size_t totalSlices = state.slices.size();
-  if (state.playbackOrder.size() != totalSlices)
+  const auto [logicalStart, logicalEnd] = getWindowLogicalPositionRange(state);
+  if (logicalEnd < logicalStart || logicalStart >= totalSlices)
   {
     out.setSize(0, 0);
     return;
@@ -1305,14 +1305,12 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
   const int numCh = state.buffer.getNumChannels();
   size_t totalSamples = 0;
 
-  // First pass: find logical positions whose physical slice lies in the window.
+  // First pass: logical positions that belong to the current window.
   std::vector<size_t> logicalPositions;
   logicalPositions.reserve(totalSlices);
-  for (size_t logical = 0; logical < totalSlices; ++logical)
+  for (size_t logical = logicalStart; logical <= logicalEnd && logical < totalSlices; ++logical)
   {
     const size_t srcIdx = state.playbackOrder[logical];
-    if (srcIdx < physStart || srcIdx >= physEnd)
-      continue;
     logicalPositions.push_back(logical);
     totalSamples += state.slices[srcIdx].lengthSamples;
   }

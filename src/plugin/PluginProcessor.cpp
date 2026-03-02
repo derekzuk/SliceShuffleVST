@@ -407,7 +407,9 @@ void CutShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
 
     juce::MessageManager::callAsync([this, buf = std::move(decodedBuffer), sr, displayName, path]() mutable
     {
-      buildPreparedStateFromBuffer(std::move(buf), sr, displayName, path, false);
+      buildPreparedStateFromBuffer(std::move(buf), sr, displayName, path, true);
+      if (auto* param = apvts.getParameter(kWindowPositionId))
+        param->setValueNotifyingHost(0.0f);
     });
   });
 }

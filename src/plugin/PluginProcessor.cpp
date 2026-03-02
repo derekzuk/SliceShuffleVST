@@ -518,15 +518,9 @@ void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>
   if (physEnd <= physStart)
     return;
 
-  // Collect physical slice indices that lie inside the window.
-  std::vector<size_t> physInWindow;
-  physInWindow.reserve(physEnd - physStart);
-  for (size_t p = physStart; p < physEnd; ++p)
-    physInWindow.push_back(p);
-
   // Collect logical positions whose current physical slice is in that window.
   std::vector<size_t> logicalPositions;
-  logicalPositions.reserve(physInWindow.size());
+  logicalPositions.reserve(state->playbackOrder.size());
   for (size_t logical = 0; logical < totalSlices; ++logical)
   {
     const size_t phys = state->playbackOrder[logical];
@@ -534,21 +528,28 @@ void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>
       logicalPositions.push_back(logical);
   }
 
-  if (logicalPositions.size() <= 1 || physInWindow.empty())
+  if (logicalPositions.size() <= 1)
     return;
 
   const uint32_t seed = static_cast<uint32_t>(juce::Random::getSystemRandom().nextInt(1000000));
-  const std::vector<size_t> order =
-      cutshuffle::CutShuffleEngine::shuffledSliceOrder(physInWindow.size(), seed, true);
+  const size_t count = logicalPositions.size();
 
-  // Non-destructive: shuffle only the set of physical slices that belong to
-  // the window, and only at the logical positions currently mapped to them.
+  // Current physical indices at those logical positions (may contain duplicates).
+  std::vector<size_t> physAtLogical;
+  physAtLogical.reserve(count);
+  for (size_t logical : logicalPositions)
+    physAtLogical.push_back(state->playbackOrder[logical]);
+
+  // Permute indices into physAtLogical; keeps duplicates intact.
+  const std::vector<size_t> order =
+      cutshuffle::CutShuffleEngine::shuffledSliceOrder(count, seed, true);
+
+  // Non-destructive: shuffle only within the set of logical positions in the window.
   std::vector<size_t> newOrder = state->playbackOrder;
-  const size_t count = std::min(logicalPositions.size(), physInWindow.size());
   for (size_t i = 0; i < count; ++i)
   {
     const size_t dstLogical = logicalPositions[i];
-    const size_t srcPhys = physInWindow[order[i]];
+    const size_t srcPhys = physAtLogical[order[i]];
     newOrder[dstLogical] = srcPhys;
   }
 

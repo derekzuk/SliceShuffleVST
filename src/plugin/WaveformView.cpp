@@ -380,6 +380,19 @@ void WaveformView::mouseUp(const juce::MouseEvent& e)
       repaint();
     }
   }
+  else if (!shiftDragActive_ && !selectedSliceIndices_.empty())
+  {
+    const int idx = sliceIndexAt(static_cast<float>(e.getPosition().getX()));
+    if (idx >= 0)
+    {
+      const size_t u = static_cast<size_t>(idx);
+      if (selectedSliceIndices_.count(u) == 0)
+      {
+        selectedSliceIndices_.clear();
+        repaint();
+      }
+    }
+  }
   shiftDragActive_ = false;
 }
 

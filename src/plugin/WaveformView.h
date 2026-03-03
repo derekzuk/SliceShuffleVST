@@ -9,7 +9,7 @@
 class WaveformView : public juce::Component, public juce::ChangeListener
 {
 public:
-  explicit WaveformView(CutShufflePluginProcessor& proc);
+  explicit WaveformView(SliceShufflePluginProcessor& proc);
 
   void paint(juce::Graphics&) override;
   void resized() override;
@@ -51,7 +51,7 @@ private:
 
   static constexpr int kDragStartThresholdPx = 5;
 
-  CutShufflePluginProcessor& processor_;
+  SliceShufflePluginProcessor& processor_;
   juce::Point<int> dragStartPos_;
   bool dragStarted_{false};
   bool shiftDragActive_{false};

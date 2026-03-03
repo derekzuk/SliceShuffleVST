@@ -6,7 +6,7 @@
 class TopBarComponent : public juce::Component
 {
 public:
-  explicit TopBarComponent(CutShufflePluginProcessor& proc);
+  explicit TopBarComponent(SliceShufflePluginProcessor& proc);
 
   void paint(juce::Graphics&) override;
   void resized() override;
@@ -16,7 +16,7 @@ public:
   void refresh();
 
 private:
-  CutShufflePluginProcessor& processor_;
+  SliceShufflePluginProcessor& processor_;
   juce::TextButton loadButton_;
   juce::TextButton resetButton_;
   juce::Label sampleLabel_;

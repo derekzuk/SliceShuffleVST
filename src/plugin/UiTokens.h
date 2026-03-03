@@ -1,8 +1,8 @@
 #pragma once
 
-namespace cutshuffle
+namespace sliceshuffle
 {
-/** Design tokens for CutShuffle UI. Single source of truth for spacing, radii, etc. */
+/** Design tokens for SliceShuffle UI. Single source of truth for spacing, radii, etc. */
 struct UiTokens
 {
   // Button appearance
@@ -25,4 +25,4 @@ struct UiTokens
   static constexpr float focusRingThickness = 2.0f;
   static constexpr float focusRingOffset = 2.0f;
 };
-} // namespace cutshuffle
+} // namespace sliceshuffle

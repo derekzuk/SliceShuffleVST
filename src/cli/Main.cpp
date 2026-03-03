@@ -1,9 +1,9 @@
-// CutShuffle CLI: load WAV → slice by BPM → shuffle slices → render with crossfades → write WAV.
+// SliceShuffle CLI: load WAV → slice by BPM → shuffle slices → render with crossfades → write WAV.
 
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
 #include <juce_audio_formats/juce_audio_formats.h>
-#include "CutShuffleEngine.h"
+#include "SliceShuffleEngine.h"
 #include "WavLoader.h"
 #include "WavWriter.h"
 #include "Renderer.h"
@@ -74,7 +74,7 @@ int main(int argc, char* argv[]) {
   }
 
   const size_t totalSamples = static_cast<size_t>(loaded->lengthInSamples);
-  cutshuffle::CutShuffleEngine engine;
+  sliceshuffle::SliceShuffleEngine engine;
   engine.setBpm(bpm);
   auto slices = engine.computeSlices(totalSamples, loaded->sampleRate, beatsPerSlice);
   if (slices.empty()) {
@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  auto order = cutshuffle::CutShuffleEngine::shuffledSliceOrder(slices.size(), seed, true);
+  auto order = sliceshuffle::SliceShuffleEngine::shuffledSliceOrder(slices.size(), seed, true);
   std::cout << "Slices: " << slices.size() << ", BPM: " << bpm
             << ", beats/slice: " << beatsPerSlice << ", seed: " << seed << "\n";
 

@@ -1,15 +1,15 @@
-#include "CutShuffleLookAndFeel.h"
+#include "SliceShuffleLookAndFeel.h"
 
-namespace cutshuffle
+namespace sliceshuffle
 {
 static juce::Identifier variantKey ("variant");
 
-CutShuffleLookAndFeel::CutShuffleLookAndFeel()
+SliceShuffleLookAndFeel::SliceShuffleLookAndFeel()
   : juce::LookAndFeel_V4 (juce::LookAndFeel_V4::getDarkColourScheme())
 {
 }
 
-ButtonVariant CutShuffleLookAndFeel::getButtonVariant (const juce::Button& button)
+ButtonVariant SliceShuffleLookAndFeel::getButtonVariant (const juce::Button& button)
 {
   const juce::var v = button.getProperties().getWithDefault (variantKey, juce::var ("secondary"));
   const juce::String s = v.toString().toLowerCase();
@@ -19,8 +19,8 @@ ButtonVariant CutShuffleLookAndFeel::getButtonVariant (const juce::Button& butto
   return ButtonVariant::Secondary;
 }
 
-CutShuffleLookAndFeel::ButtonColors
-CutShuffleLookAndFeel::getColorsForVariant (ButtonVariant v, bool enabled, bool highlighted,
+SliceShuffleLookAndFeel::ButtonColors
+SliceShuffleLookAndFeel::getColorsForVariant (ButtonVariant v, bool enabled, bool highlighted,
                                             bool down, bool toggledOn)
 {
   auto& scheme = getCurrentColourScheme();
@@ -76,7 +76,7 @@ CutShuffleLookAndFeel::getColorsForVariant (ButtonVariant v, bool enabled, bool 
   return c;
 }
 
-void CutShuffleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button,
+void SliceShuffleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button,
                                                   const juce::Colour& /*backgroundColour*/,
                                                   bool shouldDrawButtonAsHighlighted,
                                                   bool shouldDrawButtonAsDown)
@@ -99,7 +99,7 @@ void CutShuffleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Butto
     drawFocusRing (g, button, bounds);
 }
 
-void CutShuffleLookAndFeel::drawFocusRing (juce::Graphics& g, juce::Button&,
+void SliceShuffleLookAndFeel::drawFocusRing (juce::Graphics& g, juce::Button&,
                                           juce::Rectangle<float> bounds)
 {
   auto& scheme = getCurrentColourScheme();
@@ -111,7 +111,7 @@ void CutShuffleLookAndFeel::drawFocusRing (juce::Graphics& g, juce::Button&,
                            UiTokens::focusRingThickness);
 }
 
-void CutShuffleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button,
+void SliceShuffleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button,
                                             bool shouldDrawButtonAsHighlighted,
                                             bool shouldDrawButtonAsDown)
 {
@@ -131,16 +131,16 @@ void CutShuffleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton&
                     juce::Justification::centred, 2);
 }
 
-juce::Font CutShuffleLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
+juce::Font SliceShuffleLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
 {
   const float size = juce::jmin (14.0f, (float) buttonHeight * 0.55f);
   return withDefaultMetrics (juce::FontOptions (size));
 }
 
-int CutShuffleLookAndFeel::getTextButtonWidthToFitText (juce::TextButton& button, int buttonHeight)
+int SliceShuffleLookAndFeel::getTextButtonWidthToFitText (juce::TextButton& button, int buttonHeight)
 {
   const float textW = juce::TextLayout::getStringWidth (getTextButtonFont (button, buttonHeight),
                                                         button.getButtonText());
   return juce::roundToInt (textW) + UiTokens::buttonPaddingH * 2;
 }
-} // namespace cutshuffle
+} // namespace sliceshuffle

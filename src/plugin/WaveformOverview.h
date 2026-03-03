@@ -14,7 +14,7 @@ public:
   /** Called with (startSample, endSample) during drag; (-1, -1) when drag ends. */
   using LiveWindowRangeCallback = std::function<void(juce::int64, juce::int64)>;
 
-  explicit WaveformOverview(CutShufflePluginProcessor& proc);
+  explicit WaveformOverview(SliceShufflePluginProcessor& proc);
 
   void paint(juce::Graphics&) override;
   void resized() override;
@@ -53,7 +53,7 @@ private:
   static constexpr int kMinWindowSlices = 4;
   static constexpr int kMaxWindowSlices = 64;
 
-  CutShufflePluginProcessor& processor_;
+  SliceShufflePluginProcessor& processor_;
   juce::ThreadPool envelopePool_{1};
 
   // Cached envelope (built async)

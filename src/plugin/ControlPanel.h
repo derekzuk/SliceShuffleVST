@@ -6,14 +6,14 @@
 class ControlPanel : public juce::Component
 {
 public:
-  explicit ControlPanel(CutShufflePluginProcessor& proc);
+  explicit ControlPanel(SliceShufflePluginProcessor& proc);
 
   void resized() override;
 
   void refreshReseedFromProcessor();
 
 private:
-  CutShufflePluginProcessor& processor_;
+  SliceShufflePluginProcessor& processor_;
   juce::Slider bpmSlider_;
   juce::ComboBox granularityCombo_;
   juce::Slider windowSlider_;

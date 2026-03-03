@@ -1,7 +1,7 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
-#include "../dsp/CutShuffleEngine.h"
+#include "../dsp/SliceShuffleEngine.h"
 #include <vector>
 #include <cstddef>
 #include <unordered_set>
@@ -11,7 +11,7 @@ struct PreparedState {
   juce::AudioBuffer<float> buffer;
   double sampleRate{0};
   juce::int64 lengthInSamples{0};
-  std::vector<cutshuffle::Slice> slices;
+  std::vector<sliceshuffle::Slice> slices;
   /** Playback order: order[i] = source (physical) slice index for logical position i. */
   std::vector<size_t> playbackOrder;
   /** Physical slice indices (into slices) that should be treated as silent (non-destructive mute). */

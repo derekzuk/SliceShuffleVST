@@ -14,7 +14,7 @@ float fadeGain(float t) {
 
 void renderSliced(juce::AudioBuffer<float>& out,
                  const juce::AudioBuffer<float>& source,
-                 const std::vector<cutshuffle::Slice>& slices,
+                 const std::vector<sliceshuffle::Slice>& slices,
                  const std::vector<size_t>& order,
                  double sampleRate,
                  double crossfadeMs) {
@@ -28,7 +28,7 @@ void renderSliced(juce::AudioBuffer<float>& out,
   for (size_t i = 0; i < numSlices; ++i) {
     const size_t srcSliceIdx = order[i];
     if (srcSliceIdx >= slices.size()) continue;
-    const cutshuffle::Slice& sl = slices[srcSliceIdx];
+    const sliceshuffle::Slice& sl = slices[srcSliceIdx];
     const size_t len = sl.lengthSamples;
     const size_t fadeLen = std::min(crossfadeSamples, len / 2);
 

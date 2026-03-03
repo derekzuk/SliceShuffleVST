@@ -1,12 +1,12 @@
-#include "CutShuffleEngine.h"
+#include "SliceShuffleEngine.h"
 #include <random>
 #include <algorithm>
 #include <numeric>
 #include <cmath>
 
-namespace cutshuffle {
+namespace sliceshuffle {
 
-std::vector<Slice> CutShuffleEngine::computeSlices(size_t totalSamples,
+std::vector<Slice> SliceShuffleEngine::computeSlices(size_t totalSamples,
                                                double sampleRate,
                                                double beatsPerSlice) const {
   std::vector<Slice> slices;
@@ -27,7 +27,7 @@ std::vector<Slice> CutShuffleEngine::computeSlices(size_t totalSamples,
   return slices;
 }
 
-std::vector<size_t> CutShuffleEngine::shuffledSliceOrder(size_t numSlices,
+std::vector<size_t> SliceShuffleEngine::shuffledSliceOrder(size_t numSlices,
                                                       uint32_t seed,
                                                       bool noImmediateRepeats) {
   if (numSlices == 0) return {};
@@ -65,4 +65,4 @@ std::vector<size_t> CutShuffleEngine::shuffledSliceOrder(size_t numSlices,
   return indices;
 }
 
-} // namespace cutshuffle
+} // namespace sliceshuffle

@@ -2,10 +2,10 @@
 #include "../cli/WavWriter.h"
 
 namespace {
-const juce::Identifier kCutShuffleExportDragType("cutshuffle-export");
+const juce::Identifier kSliceShuffleExportDragType("sliceshuffle-export");
 } // namespace
 
-CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
+SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& p)
   : AudioProcessorEditor(&p), processorRef(p), topBar_(p), waveformOverview_(p), waveformView_(p), controlPanel_(p)
 {
   addAndMakeVisible(topBar_);
@@ -34,7 +34,7 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
     if (auto sel = processorRef.takePendingRestoreSelection())
       waveformView_.setSelectedSliceIndices(std::move(*sel));
   };
-  rearrangeButton_.setButtonText("Rearrange");
+  rearrangeButton_.setButtonText("Shuffle");
   addAndMakeVisible(rearrangeButton_);
   rearrangeButton_.onClick = [this]()
   {
@@ -91,7 +91,7 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
         });
   };
 
-  setLookAndFeel (&cutShuffleLf_);
+  setLookAndFeel (&sliceShuffleLf_);
   undoButton_.getProperties().set ("variant", juce::var ("tertiary"));
   redoButton_.getProperties().set ("variant", juce::var ("tertiary"));
   rearrangeButton_.getProperties().set ("variant", juce::var ("primary"));
@@ -133,7 +133,7 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
   setSize(720, 420);
 }
 
-CutShufflePluginEditor::~CutShufflePluginEditor()
+SliceShufflePluginEditor::~SliceShufflePluginEditor()
 {
   setLookAndFeel (nullptr);
   processorRef.getValueTreeState().removeParameterListener("bpm", this);
@@ -141,12 +141,12 @@ CutShufflePluginEditor::~CutShufflePluginEditor()
   stopTimer();
 }
 
-void CutShufflePluginEditor::paint(juce::Graphics& g)
+void SliceShufflePluginEditor::paint(juce::Graphics& g)
 {
   g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 }
 
-bool CutShufflePluginEditor::keyPressed(const juce::KeyPress& key)
+bool SliceShufflePluginEditor::keyPressed(const juce::KeyPress& key)
 {
   if (key == juce::KeyPress::spaceKey)
   {
@@ -188,11 +188,11 @@ bool CutShufflePluginEditor::keyPressed(const juce::KeyPress& key)
   return false;
 }
 
-void CutShufflePluginEditor::resized()
+void SliceShufflePluginEditor::resized()
 {
   auto r = getLocalBounds().reduced(4);
   const int topH = 36;
-  const int bottomH = cutshuffle::UiTokens::bottomBarHeight;
+  const int bottomH = sliceshuffle::UiTokens::bottomBarHeight;
   const int panelW = 220;
 
   topBar_.setBounds(r.removeFromTop(topH));
@@ -207,11 +207,11 @@ void CutShufflePluginEditor::resized()
   controlPanelViewport_.setBounds(rightArea);
   controlPanel_.setSize(rightArea.getWidth(), 380);
 
-  const int tertiaryW = cutshuffle::UiTokens::tertiaryButtonWidth;
-  const int secondaryW = cutshuffle::UiTokens::secondaryButtonWidth;
-  const int primaryW = secondaryW + cutshuffle::UiTokens::primaryButtonWidthExtra;
-  const int gap = cutshuffle::UiTokens::buttonGap;
-  const int groupGap = cutshuffle::UiTokens::groupGap;
+  const int tertiaryW = sliceshuffle::UiTokens::tertiaryButtonWidth;
+  const int secondaryW = sliceshuffle::UiTokens::secondaryButtonWidth;
+  const int primaryW = secondaryW + sliceshuffle::UiTokens::primaryButtonWidthExtra;
+  const int gap = sliceshuffle::UiTokens::buttonGap;
+  const int groupGap = sliceshuffle::UiTokens::groupGap;
 
   // Left group: Undo, Redo (tertiary)
   auto leftGroup = bottomBar.removeFromLeft (tertiaryW + gap + tertiaryW);
@@ -221,7 +221,7 @@ void CutShufflePluginEditor::resized()
 
   bottomBar.removeFromLeft (groupGap);
 
-  // Middle group: Rearrange (primary), Silence, Duplicate (secondary)
+  // Middle group: Shuffle (primary), Silence, Duplicate (secondary)
   auto midGroup = bottomBar.removeFromLeft (primaryW + gap + secondaryW + gap + secondaryW);
   rearrangeButton_.setBounds (midGroup.removeFromLeft (primaryW).reduced (2));
   midGroup.removeFromLeft (gap);
@@ -240,7 +240,7 @@ void CutShufflePluginEditor::resized()
   waveformView_.setBounds(r);
 }
 
-void CutShufflePluginEditor::timerCallback()
+void SliceShufflePluginEditor::timerCallback()
 {
   topBar_.refresh();
   waveformOverview_.ensureEnvelopeBuilt();
@@ -258,7 +258,7 @@ void CutShufflePluginEditor::timerCallback()
   }
 }
 
-void CutShufflePluginEditor::parameterChanged(const juce::String& id, float)
+void SliceShufflePluginEditor::parameterChanged(const juce::String& id, float)
 {
   if (id == "bpm")
   {
@@ -307,12 +307,12 @@ void CutShufflePluginEditor::parameterChanged(const juce::String& id, float)
   }
 }
 
-void CutShufflePluginEditor::scheduleRegenerateSliceMap()
+void SliceShufflePluginEditor::scheduleRegenerateSliceMap()
 {
   regenerateScheduledAt_ = juce::Time::getMillisecondCounter() + 150;
 }
 
-bool CutShufflePluginEditor::writeWindowToWavFile(const juce::File& file) const
+bool SliceShufflePluginEditor::writeWindowToWavFile(const juce::File& file) const
 {
   auto state = processorRef.getPreparedState();
   if (!state || state->buffer.getNumSamples() == 0 || state->sampleRate <= 0)
@@ -324,15 +324,15 @@ bool CutShufflePluginEditor::writeWindowToWavFile(const juce::File& file) const
   return writeWav(file, windowBuffer, state->sampleRate);
 }
 
-bool CutShufflePluginEditor::shouldDropFilesWhenDraggedExternally(
+bool SliceShufflePluginEditor::shouldDropFilesWhenDraggedExternally(
     const juce::DragAndDropTarget::SourceDetails& sourceDetails,
     juce::StringArray& files,
     bool& canMoveFiles)
 {
-  if (sourceDetails.description != juce::var(kCutShuffleExportDragType.toString()))
+  if (sourceDetails.description != juce::var(kSliceShuffleExportDragType.toString()))
     return false;
   juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory);
-  juce::File outFile = tempDir.getChildFile("CutShuffle_export_" + juce::Uuid().toDashedString() + ".wav");
+  juce::File outFile = tempDir.getChildFile("SliceShuffle_export_" + juce::Uuid().toDashedString() + ".wav");
   if (!writeWindowToWavFile(outFile))
     return false;
   files.add(outFile.getFullPathName());

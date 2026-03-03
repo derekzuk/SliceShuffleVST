@@ -3,7 +3,7 @@
 #include <JuceHeader.h>
 #include "UiTokens.h"
 
-namespace cutshuffle
+namespace sliceshuffle
 {
 /** Button variant: determines visual style. Set via button.getProperties().set("variant", "primary"). */
 enum class ButtonVariant
@@ -18,11 +18,11 @@ enum class ButtonVariant
  *  Reads variant from Button::getProperties() ["variant" -> "primary"|"secondary"|"tertiary"|"destructive"].
  *  Handles Normal, Hover, Down, Disabled, and Toggled (for buttons with setClickingTogglesState).
  */
-class CutShuffleLookAndFeel : public juce::LookAndFeel_V4
+class SliceShuffleLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-  CutShuffleLookAndFeel();
-  ~CutShuffleLookAndFeel() override = default;
+  SliceShuffleLookAndFeel();
+  ~SliceShuffleLookAndFeel() override = default;
 
   juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
   int getTextButtonWidthToFitText (juce::TextButton&, int buttonHeight) override;
@@ -45,4 +45,4 @@ private:
                                     bool toggledOn);
   void drawFocusRing (juce::Graphics& g, juce::Button& button, juce::Rectangle<float> bounds);
 };
-} // namespace cutshuffle
+} // namespace sliceshuffle

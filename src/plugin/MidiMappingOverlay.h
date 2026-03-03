@@ -6,11 +6,11 @@
 class MidiMappingOverlay : public juce::Component
 {
 public:
-  explicit MidiMappingOverlay(CutShufflePluginProcessor& proc);
+  explicit MidiMappingOverlay(SliceShufflePluginProcessor& proc);
 
   void paint(juce::Graphics&) override;
   void refresh();
 
 private:
-  CutShufflePluginProcessor& processor_;
+  SliceShufflePluginProcessor& processor_;
 };

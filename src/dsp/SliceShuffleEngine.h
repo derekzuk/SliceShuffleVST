@@ -3,7 +3,7 @@
 #include <vector>
 #include <cstddef>
 
-namespace cutshuffle {
+namespace sliceshuffle {
 
 // Sample buffer: interleaved or per-channel; here we use a flat buffer for simplicity.
 // You can switch to std::vector<std::vector<float>> for per-channel later.
@@ -21,9 +21,9 @@ struct Slice {
  *
  * This layer is JUCE-free so it can be unit-tested without a DAW.
  */
-class CutShuffleEngine {
+class SliceShuffleEngine {
 public:
-  CutShuffleEngine() = default;
+  SliceShuffleEngine() = default;
 
   /** Set BPM (used to compute slice length from sample rate). */
   void setBpm(double bpm) { bpm_ = bpm; }
@@ -50,4 +50,4 @@ private:
   double bpm_{120.0};
 };
 
-} // namespace cutshuffle
+} // namespace sliceshuffle

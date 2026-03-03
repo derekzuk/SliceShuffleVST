@@ -1,8 +1,8 @@
-# CutShuffle
+# SliceShuffle
 
 BPM-based WAV slicer: slice a WAV on a BPM grid, rearrange slices randomly. Built with **JUCE** (CMake-first). Targets: **CLI** (offline) and **VST3** (e.g. FL Studio).
 
-## Project layout (best practices)
+## Project layout
 
 - **CMake-first** — no Projucer; uses JUCE’s official CMake API.
 - **JUCE as submodule** — pinned at a known commit for reproducible builds.
@@ -24,8 +24,8 @@ BPM-based WAV slicer: slice a WAV on a BPM grid, rearrange slices randomly. Buil
 ### 1. Clone with JUCE submodule
 
 ```bash
-git clone --recurse-submodules https://github.com/your-org/cutshuffle.git
-cd cutshuffle
+git clone --recurse-submodules https://github.com/your-org/sliceshuffle.git
+cd sliceshuffle
 ```
 
 If the repo is already cloned without submodules:
@@ -61,9 +61,9 @@ From the **project root** (not inside `src/`):
 cmake -B build && cmake --build build
 ```
 
-- **CLI:** `build/src/CutShuffleCli_artefacts/CutShuffleCli` (with Make/Ninja; Xcode/VS use `Debug/` or `Release/` under that).
-- **Plugin (VST3):** `build/src/CutShufflePlugin_artefacts/VST3/CutShuffle.vst3`
-- **Standalone app:** `build/src/CutShufflePlugin_artefacts/Standalone/CutShuffle.app`
+- **CLI:** `build/src/SliceShuffleCli_artefacts/SliceShuffleCli` (with Make/Ninja; Xcode/VS use `Debug/` or `Release/` under that).
+- **Plugin (VST3):** `build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3`
+- **Standalone app:** `build/src/SliceShufflePlugin_artefacts/Standalone/SliceShuffle.app`
 
 Optional: use a generator explicitly:
 
@@ -74,26 +74,26 @@ cmake -G "Ninja" -B build
 
 ## Run
 
-- **CLI (stub):**  
-  `./build/src/CutShuffleCli_artefacts/CutShuffleCli input.wav output.wav --bpm 120`  
-  (Full usage to be implemented: `CutShuffleCli input.wav output.wav --bpm 120`.)
+- **CLI:**  
+  `./build/src/SliceShuffleCli_artefacts/SliceShuffleCli input.wav output.wav --bpm 120`  
+  (Full usage to be implemented: `SliceShuffleCli input.wav output.wav --bpm 120`.)
 
 - **Standalone app (macOS):**  
-  `./build/src/CutShufflePlugin_artefacts/Standalone/CutShuffle.app/Contents/MacOS/CutShuffle`
+  `./build/src/SliceShufflePlugin_artefacts/Standalone/SliceShuffle.app/Contents/MacOS/SliceShuffle`
 
-- **Plugin:** Load `CutShuffle.vst3` in FL Studio (or any VST3 host). Path: `build/src/CutShufflePlugin_artefacts/VST3/CutShuffle.vst3`
+- **Plugin:** Load `SliceShuffle.vst3` in FL Studio (or any VST3 host). Path: `build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3`
 
   Install to system VST3 folder (macOS) so your DAW picks it up:
 
   ```bash
-  sudo cp -R build/src/CutShufflePlugin_artefacts/VST3/CutShuffle.vst3 /Library/Audio/Plug-Ins/VST3/
+  sudo cp -R build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3 /Library/Audio/Plug-Ins/VST3/
   ```
 
 ## Roadmap
 
-1. **CLI:** Implement WAV load → slice by BPM (using `CutShuffleEngine`) → shuffle → write WAV.
+1. **CLI:** Implement WAV load → slice by BPM (using `SliceShuffleEngine`) → shuffle → write WAV.
 2. **Plugin:** Use the same DSP in `processBlock` with preloaded buffer; no file I/O on the audio thread. Add **APVTS** and stable parameter IDs from day one for host compatibility.
 
 ## License
 
-Your choice. JUCE is GPL/Commercial — ensure your use complies with JUCE’s license.
+JUCE is GPL/Commercial — ensure your use of this project complies with JUCE’s license and any license you choose to apply to your own code.

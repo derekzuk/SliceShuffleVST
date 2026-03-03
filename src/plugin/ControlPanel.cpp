@@ -6,7 +6,7 @@ constexpr const char* kGranularityId = "granularity";
 constexpr const char* kWindowBeatsId = "windowBeats";
 } // namespace
 
-ControlPanel::ControlPanel(CutShufflePluginProcessor& proc) : processor_(proc)
+ControlPanel::ControlPanel(SliceShufflePluginProcessor& proc) : processor_(proc)
 {
   bpmLabel_.setText("BPM", juce::dontSendNotification);
   addAndMakeVisible(bpmLabel_);

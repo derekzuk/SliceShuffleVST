@@ -11,13 +11,13 @@
 #include <unordered_set>
 #include <vector>
 
-class CutShufflePluginProcessor : public juce::AudioProcessor
+class SliceShufflePluginProcessor : public juce::AudioProcessor
 {
 public:
   enum class LoadStatus { Idle, Loading, Ready, Missing, Error };
 
-  CutShufflePluginProcessor();
-  ~CutShufflePluginProcessor() override;
+  SliceShufflePluginProcessor();
+  ~SliceShufflePluginProcessor() override;
 
   void prepareToPlay(double sampleRate, int samplesPerBlock) override;
   void releaseResources() override;
@@ -203,5 +203,5 @@ private:
 
   std::atomic<bool> loadingPreset_{false};
 
-  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CutShufflePluginProcessor)
+  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SliceShufflePluginProcessor)
 };

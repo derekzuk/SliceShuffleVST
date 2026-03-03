@@ -1,7 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "../cli/WavLoader.h"
-#include "../dsp/CutShuffleEngine.h"
+#include "../dsp/SliceShuffleEngine.h"
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -130,98 +130,98 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 }
 } // namespace
 
-CutShufflePluginProcessor::CutShufflePluginProcessor()
+SliceShufflePluginProcessor::SliceShufflePluginProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
   : AudioProcessor(
         BusesProperties()
             .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-    apvts(*this, nullptr, "CutShuffleParams", createParameterLayout())
+    apvts(*this, nullptr, "SliceShuffleParams", createParameterLayout())
 #endif
 {
 #ifdef JucePlugin_PreferredChannelConfigurations
-  apvts = juce::AudioProcessorValueTreeState(*this, nullptr, "CutShuffleParams", createParameterLayout());
+  apvts = juce::AudioProcessorValueTreeState(*this, nullptr, "SliceShuffleParams", createParameterLayout());
 #endif
   voices_.resize(kMaxVoices);
 }
 
-CutShufflePluginProcessor::~CutShufflePluginProcessor() = default;
+SliceShufflePluginProcessor::~SliceShufflePluginProcessor() = default;
 
-const juce::String CutShufflePluginProcessor::getName() const { return JucePlugin_Name; }
+const juce::String SliceShufflePluginProcessor::getName() const { return JucePlugin_Name; }
 
-bool CutShufflePluginProcessor::acceptsMidi() const { return true; }
-bool CutShufflePluginProcessor::producesMidi() const { return false; }
-bool CutShufflePluginProcessor::isMidiEffect() const { return false; }
-double CutShufflePluginProcessor::getTailLengthSeconds() const { return 0.0; }
+bool SliceShufflePluginProcessor::acceptsMidi() const { return true; }
+bool SliceShufflePluginProcessor::producesMidi() const { return false; }
+bool SliceShufflePluginProcessor::isMidiEffect() const { return false; }
+double SliceShufflePluginProcessor::getTailLengthSeconds() const { return 0.0; }
 
-int CutShufflePluginProcessor::getNumPrograms() { return 1; }
-int CutShufflePluginProcessor::getCurrentProgram() { return 0; }
-void CutShufflePluginProcessor::setCurrentProgram(int) {}
-const juce::String CutShufflePluginProcessor::getProgramName(int) { return {}; }
-void CutShufflePluginProcessor::changeProgramName(int, const juce::String&) {}
+int SliceShufflePluginProcessor::getNumPrograms() { return 1; }
+int SliceShufflePluginProcessor::getCurrentProgram() { return 0; }
+void SliceShufflePluginProcessor::setCurrentProgram(int) {}
+const juce::String SliceShufflePluginProcessor::getProgramName(int) { return {}; }
+void SliceShufflePluginProcessor::changeProgramName(int, const juce::String&) {}
 
-void CutShufflePluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+void SliceShufflePluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
   hostSampleRate_ = sampleRate;
   hostBlockSize_ = samplesPerBlock;
 }
 
-void CutShufflePluginProcessor::releaseResources() {}
+void SliceShufflePluginProcessor::releaseResources() {}
 
 #ifndef JucePlugin_PreferredChannelConfigurations
-bool CutShufflePluginProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+bool SliceShufflePluginProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
   return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::mono()
       || layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
 }
 #endif
 
-std::shared_ptr<const PreparedState> CutShufflePluginProcessor::getPreparedState() const
+std::shared_ptr<const PreparedState> SliceShufflePluginProcessor::getPreparedState() const
 {
   std::lock_guard lock(preparedStateMutex_);
   return preparedState_;
 }
 
-CutShufflePluginProcessor::LoadStatus CutShufflePluginProcessor::getLoadStatus() const
+SliceShufflePluginProcessor::LoadStatus SliceShufflePluginProcessor::getLoadStatus() const
 {
   return loadStatus_.load();
 }
 
-juce::String CutShufflePluginProcessor::getLoadedSampleDisplayName() const
+juce::String SliceShufflePluginProcessor::getLoadedSampleDisplayName() const
 {
   std::shared_lock lock(stateMutex_);
   return loadedSampleDisplayName_;
 }
 
-juce::String CutShufflePluginProcessor::getLoadedSamplePath() const
+juce::String SliceShufflePluginProcessor::getLoadedSamplePath() const
 {
   std::shared_lock lock(stateMutex_);
   return loadedSamplePath_;
 }
 
-int CutShufflePluginProcessor::getNumSlices() const
+int SliceShufflePluginProcessor::getNumSlices() const
 {
   std::lock_guard lock(preparedStateMutex_);
   return preparedState_ ? static_cast<int>(preparedState_->slices.size()) : 0;
 }
 
-juce::String CutShufflePluginProcessor::getLoadErrorText() const
+juce::String SliceShufflePluginProcessor::getLoadErrorText() const
 {
   std::shared_lock lock(stateMutex_);
   return loadErrorText_;
 }
 
-void CutShufflePluginProcessor::setLoadStatus(LoadStatus s)
+void SliceShufflePluginProcessor::setLoadStatus(LoadStatus s)
 {
   loadStatus_.store(s);
 }
 
-void CutShufflePluginProcessor::setLoadError(const juce::String& text)
+void SliceShufflePluginProcessor::setLoadError(const juce::String& text)
 {
   std::unique_lock lock(stateMutex_);
   loadErrorText_ = text;
 }
 
-void CutShufflePluginProcessor::applyNewPreparedState(std::shared_ptr<const PreparedState> state)
+void SliceShufflePluginProcessor::applyNewPreparedState(std::shared_ptr<const PreparedState> state)
 {
   {
     std::lock_guard lock(preparedStateMutex_);
@@ -232,7 +232,7 @@ void CutShufflePluginProcessor::applyNewPreparedState(std::shared_ptr<const Prep
     setLoadError({});
 }
 
-void CutShufflePluginProcessor::pushUndoEntry(std::vector<size_t> currentOrder,
+void SliceShufflePluginProcessor::pushUndoEntry(std::vector<size_t> currentOrder,
                                              std::optional<std::unordered_set<size_t>> selectionToRestore,
                                              std::optional<std::unordered_set<size_t>> mutedToRestore)
 {
@@ -242,12 +242,12 @@ void CutShufflePluginProcessor::pushUndoEntry(std::vector<size_t> currentOrder,
     undo_.pop_front();
 }
 
-void CutShufflePluginProcessor::incrementGeneration()
+void SliceShufflePluginProcessor::incrementGeneration()
 {
   ++gen_;
 }
 
-void CutShufflePluginProcessor::undo(const std::unordered_set<size_t>& currentSelection)
+void SliceShufflePluginProcessor::undo(const std::unordered_set<size_t>& currentSelection)
 {
   while (!undo_.empty() && undo_.back().gen != gen_)
     undo_.pop_back();
@@ -275,7 +275,7 @@ void CutShufflePluginProcessor::undo(const std::unordered_set<size_t>& currentSe
   applyNewPreparedState(std::move(newState));
 }
 
-void CutShufflePluginProcessor::redo(const std::unordered_set<size_t>& currentSelection)
+void SliceShufflePluginProcessor::redo(const std::unordered_set<size_t>& currentSelection)
 {
   while (!redo_.empty() && redo_.back().gen != gen_)
     redo_.pop_back();
@@ -303,14 +303,14 @@ void CutShufflePluginProcessor::redo(const std::unordered_set<size_t>& currentSe
   applyNewPreparedState(std::move(newState));
 }
 
-std::optional<std::unordered_set<size_t>> CutShufflePluginProcessor::takePendingRestoreSelection()
+std::optional<std::unordered_set<size_t>> SliceShufflePluginProcessor::takePendingRestoreSelection()
 {
   auto out = std::move(pendingRestoreSelection_);
   pendingRestoreSelection_ = std::nullopt;
   return out;
 }
 
-bool CutShufflePluginProcessor::canUndo() const
+bool SliceShufflePluginProcessor::canUndo() const
 {
   for (auto it = undo_.rbegin(); it != undo_.rend(); ++it)
     if (it->gen == gen_)
@@ -318,7 +318,7 @@ bool CutShufflePluginProcessor::canUndo() const
   return false;
 }
 
-bool CutShufflePluginProcessor::canRedo() const
+bool SliceShufflePluginProcessor::canRedo() const
 {
   for (auto it = redo_.rbegin(); it != redo_.rend(); ++it)
     if (it->gen == gen_)
@@ -326,7 +326,7 @@ bool CutShufflePluginProcessor::canRedo() const
   return false;
 }
 
-void CutShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float> buffer,
+void SliceShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<float> buffer,
                                                          double sampleRate,
                                                          const juce::String& displayName,
                                                          const juce::String& path,
@@ -336,7 +336,7 @@ void CutShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<f
   if (totalSamples == 0 || sampleRate <= 0)
     return;
 
-  cutshuffle::CutShuffleEngine engine;
+  sliceshuffle::SliceShuffleEngine engine;
   engine.setBpm(static_cast<double>(*apvts.getRawParameterValue(kBpmId)));
   const int granIndex = juce::jlimit(
       0, kNumGranularityChoices - 1,
@@ -362,7 +362,7 @@ void CutShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<f
     }
     else
     {
-      order = cutshuffle::CutShuffleEngine::shuffledSliceOrder(slices.size(), seed, true);
+      order = sliceshuffle::SliceShuffleEngine::shuffledSliceOrder(slices.size(), seed, true);
     }
   }
 
@@ -397,7 +397,7 @@ void CutShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer<f
   incrementGeneration();
 }
 
-void CutShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
+void SliceShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
 {
   if (!file.existsAsFile())
   {
@@ -450,7 +450,7 @@ void CutShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
   });
 }
 
-void CutShufflePluginProcessor::clearSample()
+void SliceShufflePluginProcessor::clearSample()
 {
   ++loadJobId_;
   {
@@ -471,7 +471,7 @@ void CutShufflePluginProcessor::clearSample()
     v.active = false;
 }
 
-void CutShufflePluginProcessor::regenerateSliceMap()
+void SliceShufflePluginProcessor::regenerateSliceMap()
 {
   std::shared_ptr<const PreparedState> state;
   {
@@ -492,12 +492,12 @@ void CutShufflePluginProcessor::regenerateSliceMap()
       juce::AudioBuffer<float>(state->buffer), state->sampleRate, displayName, path, true);
 }
 
-void CutShufflePluginProcessor::rearrangeSample()
+void SliceShufflePluginProcessor::rearrangeSample()
 {
   rearrangeSample({});
 }
 
-void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>& selectedPositions)
+void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>& selectedPositions)
 {
   std::shared_ptr<const PreparedState> state;
   {
@@ -533,7 +533,7 @@ void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>
 
     const uint32_t seed = static_cast<uint32_t>(juce::Random::getSystemRandom().nextInt(1000000));
     const std::vector<size_t> shuffledOrder =
-        cutshuffle::CutShuffleEngine::shuffledSliceOrder(physAtSelected.size(), seed, true);
+        sliceshuffle::SliceShuffleEngine::shuffledSliceOrder(physAtSelected.size(), seed, true);
 
     std::vector<size_t> newOrder = state->playbackOrder;
     for (size_t i = 0; i < positions.size(); ++i)
@@ -578,7 +578,7 @@ void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>
 
   // Permute indices into physAtLogical; keeps duplicates intact.
   const std::vector<size_t> order =
-      cutshuffle::CutShuffleEngine::shuffledSliceOrder(count, seed, true);
+      sliceshuffle::SliceShuffleEngine::shuffledSliceOrder(count, seed, true);
 
   // Non-destructive: shuffle only within the set of logical positions in the window.
   std::vector<size_t> newOrder = state->playbackOrder;
@@ -600,7 +600,7 @@ void CutShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_t>
   apvts.getParameterAsValue(kSeedId).setValue(static_cast<int>(seed));
 }
 
-void CutShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
+void SliceShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
 {
   if (selectedPositions.empty())
     return;
@@ -642,7 +642,7 @@ void CutShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set<s
   applyNewPreparedState(std::move(newState));
 }
 
-void CutShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
+void SliceShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
 {
   if (selectedPositions.empty())
     return;
@@ -748,7 +748,7 @@ void CutShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_set
   applyNewPreparedState(std::move(newState));
 }
 
-std::vector<size_t> CutShufflePluginProcessor::moveSelectedSlicesInOrder(
+std::vector<size_t> SliceShufflePluginProcessor::moveSelectedSlicesInOrder(
     const std::unordered_set<size_t>& selectedPositions, int direction)
 {
   if (selectedPositions.empty() || (direction != -1 && direction != 1))
@@ -764,7 +764,7 @@ std::vector<size_t> CutShufflePluginProcessor::moveSelectedSlicesInOrder(
 
   std::vector<size_t> order = state->playbackOrder;
   const size_t n = order.size();
-  const std::vector<cutshuffle::Slice>& slices = state->slices;
+  const std::vector<sliceshuffle::Slice>& slices = state->slices;
 
   // selectedPositions = the visual positions (slice indices) the user clicked
   std::vector<size_t> positions;
@@ -842,7 +842,7 @@ std::vector<size_t> CutShufflePluginProcessor::moveSelectedSlicesInOrder(
   return order;
 }
 
-std::pair<juce::int64, juce::int64> CutShufflePluginProcessor::getWindowRangeSnappedToSlices() const
+std::pair<juce::int64, juce::int64> SliceShufflePluginProcessor::getWindowRangeSnappedToSlices() const
 {
   auto state = getPreparedState();
   if (!state)
@@ -850,14 +850,14 @@ std::pair<juce::int64, juce::int64> CutShufflePluginProcessor::getWindowRangeSna
   return getWindowRangeSnappedToSlices(*state);
 }
 
-std::pair<juce::int64, juce::int64> CutShufflePluginProcessor::getWindowRangeSnappedToSlices(
+std::pair<juce::int64, juce::int64> SliceShufflePluginProcessor::getWindowRangeSnappedToSlices(
     const PreparedState& state) const
 {
   const juce::int64 totalSamples = state.lengthInSamples;
   if (totalSamples <= 0)
     return {0, 0};
 
-  const std::vector<cutshuffle::Slice>& slices = state.slices;
+  const std::vector<sliceshuffle::Slice>& slices = state.slices;
   if (slices.empty())
     return {0, totalSamples};
 
@@ -875,15 +875,15 @@ std::pair<juce::int64, juce::int64> CutShufflePluginProcessor::getWindowRangeSna
       maxStart,
       static_cast<size_t>(std::round(static_cast<double>(posNorm) * static_cast<double>(maxStart))));
 
-  const cutshuffle::Slice& first = slices[startIdx];
-  const cutshuffle::Slice& last = slices[startIdx + windowSlices - 1];
+  const sliceshuffle::Slice& first = slices[startIdx];
+  const sliceshuffle::Slice& last = slices[startIdx + windowSlices - 1];
   const juce::int64 startSnap = static_cast<juce::int64>(first.startSample);
   const juce::int64 endSnap = static_cast<juce::int64>(last.startSample) + static_cast<juce::int64>(last.lengthSamples);
 
   return {startSnap, juce::jmin(endSnap, totalSamples)};
 }
 
-void CutShufflePluginProcessor::startPreview()
+void SliceShufflePluginProcessor::startPreview()
 {
   std::shared_ptr<const PreparedState> state;
   {
@@ -912,17 +912,17 @@ void CutShufflePluginProcessor::startPreview()
   previewActive_.store(true);
 }
 
-void CutShufflePluginProcessor::stopPreview()
+void SliceShufflePluginProcessor::stopPreview()
 {
   previewActive_.store(false);
 }
 
-bool CutShufflePluginProcessor::isPreviewActive() const
+bool SliceShufflePluginProcessor::isPreviewActive() const
 {
   return previewActive_.load();
 }
 
-void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+void SliceShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
   juce::ScopedNoDenormals noDenormals;
   buffer.clear();
@@ -1051,7 +1051,7 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     if (!v.active || v.sliceIndex < 0 || v.sliceIndex >= static_cast<int>(state->slices.size()))
       continue;
 
-    const cutshuffle::Slice& sl = state->slices[static_cast<size_t>(v.sliceIndex)];
+    const sliceshuffle::Slice& sl = state->slices[static_cast<size_t>(v.sliceIndex)];
     const size_t sliceLen = sl.lengthSamples;
     const size_t start = sl.startSample;
     const int fadeSamples = fadeSamplesForSlice(state->sampleRate, sliceLen);
@@ -1082,20 +1082,20 @@ void CutShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
   }
 }
 
-bool CutShufflePluginProcessor::hasEditor() const { return true; }
-juce::AudioProcessorEditor* CutShufflePluginProcessor::createEditor()
+bool SliceShufflePluginProcessor::hasEditor() const { return true; }
+juce::AudioProcessorEditor* SliceShufflePluginProcessor::createEditor()
 {
-  return new CutShufflePluginEditor(*this);
+  return new SliceShufflePluginEditor(*this);
 }
 
-void CutShufflePluginProcessor::getStateInformation(juce::MemoryBlock& destData)
+void SliceShufflePluginProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
   auto xml = createFullStateXml();
   if (xml)
     copyXmlToBinary(*xml, destData);
 }
 
-void CutShufflePluginProcessor::setStateInformation(const void* data, int sizeInBytes)
+void SliceShufflePluginProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
   std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
   if (xml)
@@ -1107,7 +1107,7 @@ void CutShufflePluginProcessor::setStateInformation(const void* data, int sizeIn
   }
 }
 
-std::unique_ptr<juce::XmlElement> CutShufflePluginProcessor::createFullStateXml() const
+std::unique_ptr<juce::XmlElement> SliceShufflePluginProcessor::createFullStateXml() const
 {
   auto vt = const_cast<juce::AudioProcessorValueTreeState&>(apvts).copyState();
   std::unique_ptr<juce::XmlElement> xml(vt.createXml());
@@ -1143,7 +1143,7 @@ std::unique_ptr<juce::XmlElement> CutShufflePluginProcessor::createFullStateXml(
   return xml;
 }
 
-void CutShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xml, bool restoreSamplePath)
+void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xml, bool restoreSamplePath)
 {
   // Restore APVTS (all parameters)
   apvts.replaceState(juce::ValueTree::fromXml(xml));
@@ -1205,7 +1205,7 @@ void CutShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xml,
   }
 }
 
-bool CutShufflePluginProcessor::savePresetToFile(const juce::File& file) const
+bool SliceShufflePluginProcessor::savePresetToFile(const juce::File& file) const
 {
   auto xml = createFullStateXml();
   if (!xml)
@@ -1221,7 +1221,7 @@ bool CutShufflePluginProcessor::savePresetToFile(const juce::File& file) const
   return true;
 }
 
-bool CutShufflePluginProcessor::loadPresetFromFile(const juce::File& file)
+bool SliceShufflePluginProcessor::loadPresetFromFile(const juce::File& file)
 {
   if (!file.existsAsFile())
     return false;
@@ -1237,7 +1237,7 @@ bool CutShufflePluginProcessor::loadPresetFromFile(const juce::File& file)
   return true;
 }
 
-void CutShufflePluginProcessor::resetArrangement()
+void SliceShufflePluginProcessor::resetArrangement()
 {
   std::shared_ptr<const PreparedState> state;
   {
@@ -1261,13 +1261,13 @@ void CutShufflePluginProcessor::resetArrangement()
   applyNewPreparedState(std::move(newState));
 }
 
-std::pair<size_t, size_t> CutShufflePluginProcessor::getWindowSliceRange(const PreparedState& state) const
+std::pair<size_t, size_t> SliceShufflePluginProcessor::getWindowSliceRange(const PreparedState& state) const
 {
   auto [startSample, endSample] = getWindowRangeSnappedToSlices(state);
   if (endSample <= startSample)
     return {0, 0};
 
-  const std::vector<cutshuffle::Slice>& slices = state.slices;
+  const std::vector<sliceshuffle::Slice>& slices = state.slices;
   const size_t numSlices = slices.size();
   size_t firstSlice = numSlices;
   size_t lastSlice = 0;
@@ -1288,7 +1288,7 @@ std::pair<size_t, size_t> CutShufflePluginProcessor::getWindowSliceRange(const P
   return {firstSlice, lastSlice + 1}; // [start, end)
 }
 
-std::pair<size_t, size_t> CutShufflePluginProcessor::getWindowLogicalPositionRange(
+std::pair<size_t, size_t> SliceShufflePluginProcessor::getWindowLogicalPositionRange(
     const PreparedState& state) const
 {
   auto [windowStart, windowEnd] = getWindowRangeSnappedToSlices(state);
@@ -1322,7 +1322,7 @@ std::pair<size_t, size_t> CutShufflePluginProcessor::getWindowLogicalPositionRan
   return {minLogical, maxLogical};
 }
 
-void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
+void SliceShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
                                                  juce::AudioBuffer<float>& out) const
 {
   const size_t totalSlices = state.slices.size();
@@ -1403,7 +1403,7 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
   }
 }
 
-void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& state,
+void SliceShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& state,
                                                          juce::int64 startSample,
                                                          juce::int64 endSample,
                                                          juce::AudioBuffer<float>& out) const
@@ -1505,5 +1505,5 @@ void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& s
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-  return static_cast<juce::AudioProcessor*>(new CutShufflePluginProcessor());
+  return static_cast<juce::AudioProcessor*>(new SliceShufflePluginProcessor());
 }

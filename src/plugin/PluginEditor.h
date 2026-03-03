@@ -6,17 +6,17 @@
 #include "WaveformView.h"
 #include "WaveformOverview.h"
 #include "ControlPanel.h"
-#include "CutShuffleLookAndFeel.h"
+#include "SliceShuffleLookAndFeel.h"
 #include "UiTokens.h"
 
-class CutShufflePluginEditor : public juce::AudioProcessorEditor,
+class SliceShufflePluginEditor : public juce::AudioProcessorEditor,
                            public juce::DragAndDropContainer,
                            private juce::Timer,
                            private juce::AudioProcessorValueTreeState::Listener
 {
 public:
-  explicit CutShufflePluginEditor(CutShufflePluginProcessor&);
-  ~CutShufflePluginEditor() override;
+  explicit SliceShufflePluginEditor(SliceShufflePluginProcessor&);
+  ~SliceShufflePluginEditor() override;
 
   void paint(juce::Graphics&) override;
   void resized() override;
@@ -36,8 +36,8 @@ private:
 
   void scheduleRegenerateSliceMap();
 
-  CutShufflePluginProcessor& processorRef;
-  cutshuffle::CutShuffleLookAndFeel cutShuffleLf_;
+  SliceShufflePluginProcessor& processorRef;
+  sliceshuffle::SliceShuffleLookAndFeel sliceShuffleLf_;
   TopBarComponent topBar_;
   WaveformOverview waveformOverview_;
   WaveformView waveformView_;

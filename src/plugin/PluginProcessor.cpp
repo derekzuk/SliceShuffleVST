@@ -43,6 +43,33 @@ void applySliceFades(juce::AudioBuffer<float>& buf, int startSample, int len,
   }
 }
 
+/** Same as above but only apply fade-in and/or fade-out when the corresponding flag is true.
+ *  Use when playing in original order: skip fades at boundaries that are continuous in the source. */
+void applySliceFades(juce::AudioBuffer<float>& buf, int startSample, int len,
+                    int fadeInSamples, int fadeOutSamples, bool applyFadeIn, bool applyFadeOut)
+{
+  if (len <= 0)
+    return;
+  if (!applyFadeIn && !applyFadeOut)
+    return;
+  fadeInSamples = applyFadeIn ? juce::jmin(fadeInSamples, len) : 0;
+  fadeOutSamples = applyFadeOut ? juce::jmin(fadeOutSamples, len) : 0;
+  const int numCh = buf.getNumChannels();
+  for (int ch = 0; ch < numCh; ++ch)
+  {
+    float* data = buf.getWritePointer(ch);
+    if (fadeInSamples > 0)
+      for (int i = 0; i < fadeInSamples; ++i)
+        data[startSample + i] *= (i + 1) / static_cast<float>(fadeInSamples);
+    if (fadeOutSamples > 0)
+      for (int i = 0; i < fadeOutSamples; ++i)
+      {
+        const int idx = startSample + len - 1 - i;
+        data[idx] *= (i + 1) / static_cast<float>(fadeOutSamples);
+      }
+  }
+}
+
 /** Fade length in samples for a slice; clamped to half slice length. */
 int fadeSamplesForSlice(double sampleRate, size_t sliceLen)
 {
@@ -50,11 +77,15 @@ int fadeSamplesForSlice(double sampleRate, size_t sliceLen)
   return juce::jlimit(0, static_cast<int>(sliceLen / 2), n);
 }
 
-/** Apply fades to a segment that may be a partial slice (for renderSampleRangeToBuffer). */
+/** Apply fades to a segment that may be a partial slice (for renderSampleRangeToBuffer).
+ *  Only applies fade-in/fade-out when the boundary is a discontinuity in playback order. */
 void applySliceFadesSegment(juce::AudioBuffer<float>& buf, int startSample, int len,
-                            size_t offsetInSliceStart, size_t sliceLen, int fadeSamples)
+                            size_t offsetInSliceStart, size_t sliceLen, int fadeSamples,
+                            bool applyFadeInAtStart, bool applyFadeOutAtEnd)
 {
   if (len <= 0 || fadeSamples <= 0)
+    return;
+  if (!applyFadeInAtStart && !applyFadeOutAtEnd)
     return;
   const int numCh = buf.getNumChannels();
   for (int ch = 0; ch < numCh; ++ch)
@@ -64,9 +95,9 @@ void applySliceFadesSegment(juce::AudioBuffer<float>& buf, int startSample, int 
     {
       const size_t posInSlice = offsetInSliceStart + static_cast<size_t>(i);
       float gain = 1.0f;
-      if (posInSlice < static_cast<size_t>(fadeSamples))
+      if (applyFadeInAtStart && posInSlice < static_cast<size_t>(fadeSamples))
         gain = (static_cast<float>(posInSlice) + 1.0f) / static_cast<float>(fadeSamples);
-      else if (posInSlice >= sliceLen - static_cast<size_t>(fadeSamples) && sliceLen > static_cast<size_t>(fadeSamples))
+      else if (applyFadeOutAtEnd && posInSlice >= sliceLen - static_cast<size_t>(fadeSamples) && sliceLen > static_cast<size_t>(fadeSamples))
         gain = static_cast<float>(sliceLen - posInSlice) / static_cast<float>(fadeSamples);
       data[startSample + i] *= gain;
     }
@@ -1331,8 +1362,9 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
   out.clear();
 
   size_t writePos = 0;
-  for (size_t logical : logicalPositions)
+  for (size_t i = 0; i < logicalPositions.size(); ++i)
   {
+    const size_t logical = logicalPositions[i];
     const size_t srcIdx = state.playbackOrder[logical];
     if (srcIdx >= totalSlices)
       continue;
@@ -1340,6 +1372,15 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
     const int len = static_cast<int>(sl.lengthSamples);
     const int srcStart = static_cast<int>(sl.startSample);
     const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sl.lengthSamples);
+
+    // Only apply fades at boundaries that are discontinuous in the source.
+    // When playback order is original (0,1,2,...), adjacent slices are continuous — skip fades to avoid a dip.
+    const size_t prevSrcIdx = (i > 0) ? state.playbackOrder[logicalPositions[i - 1]] : totalSlices;
+    const size_t nextSrcIdx = (i + 1 < logicalPositions.size()) ? state.playbackOrder[logicalPositions[i + 1]] : totalSlices;
+    const bool continuousWithPrev = (i > 0 && prevSrcIdx + 1 == srcIdx);
+    const bool continuousWithNext = (i + 1 < logicalPositions.size() && nextSrcIdx == srcIdx + 1);
+    const bool applyFadeIn = !continuousWithPrev;
+    const bool applyFadeOut = !continuousWithNext;
 
     const bool isMuted = !state.mutedSliceIndices.empty() &&
                          state.mutedSliceIndices.count(srcIdx) != 0;
@@ -1355,7 +1396,7 @@ void CutShufflePluginProcessor::renderWindowToBuffer(const PreparedState& state,
                      srcStart,
                      len);
       }
-      applySliceFades(out, static_cast<int>(writePos), len, fadeSamples, fadeSamples);
+      applySliceFades(out, static_cast<int>(writePos), len, fadeSamples, fadeSamples, applyFadeIn, applyFadeOut);
     }
     // Always advance writePos so timing/layout stays the same, even if muted (silence).
     writePos += static_cast<size_t>(len);
@@ -1432,6 +1473,16 @@ void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& s
     const size_t offsetInSliceStart = static_cast<size_t>(overlapStart - sliceStart);
     const size_t sliceLen = sl.lengthSamples;
     const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sliceLen);
+    // Only apply fades at boundaries that are discontinuous in the source (same as renderWindowToBuffer).
+    const size_t prevSrcIdx = (logical > 0) ? state.playbackOrder[logical - 1] : totalSlices;
+    const size_t nextSrcIdx = (logical + 1 < totalSlices) ? state.playbackOrder[logical + 1] : totalSlices;
+    const bool continuousWithPrev = (logical > 0 && prevSrcIdx + 1 == srcIdx);
+    const bool continuousWithNext = (logical + 1 < totalSlices && nextSrcIdx == srcIdx + 1);
+    const bool atSliceStart = (offsetInSliceStart == 0);
+    const bool atSliceEnd = (offsetInSliceStart + static_cast<size_t>(len) == sliceLen);
+    const bool applyFadeInAtStart = atSliceStart && !continuousWithPrev;
+    const bool applyFadeOutAtEnd = atSliceEnd && !continuousWithNext;
+
     const bool isMuted = !state.mutedSliceIndices.empty() &&
                          state.mutedSliceIndices.count(srcIdx) != 0;
     if (!isMuted)
@@ -1445,7 +1496,8 @@ void CutShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState& s
                      srcStart,
                      len);
       }
-      applySliceFadesSegment(out, static_cast<int>(writePos), len, offsetInSliceStart, sliceLen, fadeSamples);
+      applySliceFadesSegment(out, static_cast<int>(writePos), len, offsetInSliceStart, sliceLen, fadeSamples,
+                            applyFadeInAtStart, applyFadeOutAtEnd);
     }
     writePos += static_cast<size_t>(len);
   }

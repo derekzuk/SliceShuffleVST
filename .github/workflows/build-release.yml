@@ -1,5 +1,7 @@
-# Build SliceShuffle on macOS and Windows for releases.
-# Runs on: push to main (build only), or when a release is published / workflow_dispatch.
+# Build SliceShuffle on macOS and Windows; attach zips to a GitHub release.
+# - Publish a release in the UI first (creates the tag + source zip).
+# - Then run this workflow manually (Actions → Build release → Run workflow), enter the release tag (e.g. v0.1.0).
+# - When it finishes, the macOS and Windows zips will appear on that release.
 name: Build release
 
 on:
@@ -8,6 +10,10 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag to attach assets to (e.g. v0.1.0). Leave empty when triggering from a release.'
+        required: false
 
 jobs:
   build:
@@ -43,30 +49,55 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: cmake --build build --config Release
 
+      - name: List build output (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          echo "=== Build tree (artefacts) ==="
+          find build -type d -name '*artefacts*' 2>/dev/null || true
+          echo "=== VST3 / App ==="
+          find build -name '*.vst3' -o -name 'SliceShuffle.app' 2>/dev/null | head -20
+
+      - name: List build output (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "=== Build tree ==="
+          Get-ChildItem -Path build -Recurse -Directory -Filter "*artefacts*" | Select-Object -ExpandProperty FullName
+          echo "=== VST3 / exe ==="
+          Get-ChildItem -Path build -Recurse -Include "*.vst3","SliceShuffle.exe" | Select-Object -ExpandProperty FullName
+
       - name: Package (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          set -e
+          VERSION="${{ github.event.inputs.tag_name || github.event.release.tag_name || github.ref_name }}"
+          VERSION="${VERSION#v}"
           [ -z "$VERSION" ] || [ "$VERSION" = "main" ] && VERSION="snapshot"
           mkdir -p release
-          cp -R build/src/SliceShufflePlugin_artefacts/Release/VST3/SliceShuffle.vst3 release/ 2>/dev/null || cp -R build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3 release/
-          cp -R build/src/SliceShufflePlugin_artefacts/Release/Standalone/SliceShuffle.app release/ 2>/dev/null || cp -R build/src/SliceShufflePlugin_artefacts/Standalone/SliceShuffle.app release/
-          cp build/src/SliceShuffleCli_artefacts/Release/SliceShuffleCli release/ 2>/dev/null || cp build/src/SliceShuffleCli_artefacts/SliceShuffleCli release/
-          cd release && zip -r "../SliceShuffle-${{ matrix.name }}-${VERSION}.zip" . && cd ..
+          # JUCE puts outputs in <target>_artefacts/Release/ (or sometimes without Release on single-config)
+          VST3=$(find build -type d -name 'SliceShuffle.vst3' 2>/dev/null | head -1)
+          APP=$(find build -type d -name 'SliceShuffle.app' 2>/dev/null | head -1)
+          [ -n "$VST3" ] && cp -R "$VST3" release/
+          [ -n "$APP" ] && cp -R "$APP" release/
+          CLI=$(find build -type f -name 'SliceShuffleCli' -path '*/Release/*' 2>/dev/null | head -1)
+          [ -z "$CLI" ] && CLI=$(find build -type f -name 'SliceShuffleCli' 2>/dev/null | head -1)
+          [ -n "$CLI" ] && cp "$CLI" release/
+          (cd release && zip -r "../SliceShuffle-${{ matrix.name }}-${VERSION}.zip" .)
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $ver = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME.TrimStart('v') } else { 'snapshot' }
+          $ver = "${{ github.event.inputs.tag_name || github.event.release.tag_name || github.ref_name }}".TrimStart('v')
+          if (-not $ver -or $ver -eq 'main') { $ver = 'snapshot' }
           New-Item -ItemType Directory -Path release -Force
-          Copy-Item -Recurse -Path "build\src\SliceShufflePlugin_artefacts\Release\VST3\SliceShuffle.vst3" -Destination "release\"
-          $standaloneDir = "build\src\SliceShufflePlugin_artefacts\Release\Standalone"
-          if (Test-Path $standaloneDir) {
-            Copy-Item -Path "$standaloneDir\*" -Destination "release\" -Recurse -Force
-          }
-          $cliExe = "build\src\SliceShuffleCli_artefacts\Release\SliceShuffleCli.exe"
-          if (Test-Path $cliExe) { Copy-Item $cliExe -Destination "release\" }
+          $vst3 = Get-ChildItem -Path build -Recurse -Directory -Filter "SliceShuffle.vst3" | Select-Object -First 1 -ExpandProperty FullName
+          if ($vst3) { Copy-Item -Recurse -Path $vst3 -Destination "release\" }
+          $exe = Get-ChildItem -Path build -Recurse -Filter "SliceShuffle.exe" | Select-Object -First 1 -ExpandProperty FullName
+          if ($exe) { Copy-Item -Path $exe -Destination "release\" }
+          $standaloneDir = Get-ChildItem -Path build -Recurse -Directory -Filter "Standalone" | Where-Object { $_.FullName -match "SliceShufflePlugin" } | Select-Object -First 1
+          if ($standaloneDir) { Copy-Item -Path "$($standaloneDir.FullName)\*" -Destination "release\" -Recurse -Force }
+          $cli = Get-ChildItem -Path build -Recurse -Filter "SliceShuffleCli.exe" | Select-Object -First 1 -ExpandProperty FullName
+          if ($cli) { Copy-Item -Path $cli -Destination "release\" }
           Compress-Archive -Path "release\*" -DestinationPath "SliceShuffle-${{ matrix.name }}-$ver.zip"
 
       - name: Upload artifact
@@ -75,13 +106,13 @@ jobs:
           name: SliceShuffle-${{ matrix.name }}
           path: SliceShuffle-${{ matrix.name }}-*.zip
 
-  # On release, attach the built zips to the release
   upload-release:
     needs: build
-    if: github.event_name == 'release'
+    # Run when we have a release event, or when manually run with a tag name
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name != '')
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -99,7 +130,6 @@ jobs:
           done
           ls -la release-assets/
           [ -n "$(ls -A release-assets 2>/dev/null)" ] || { echo "No zip artifacts found"; exit 1; }
-          # Multiline output: list of zip paths for the release action
           echo "files<<EOF" >> "$GITHUB_OUTPUT"
           for f in release-assets/*.zip; do [ -f "$f" ] && echo "$f" >> "$GITHUB_OUTPUT"; done
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -107,6 +137,7 @@ jobs:
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}
           files: ${{ steps.prepare.outputs.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

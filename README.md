@@ -91,12 +91,13 @@ cmake -G "Ninja" -B build
 
 ## GitHub Releases (macOS + Windows)
 
-The repo includes a GitHub Actions workflow (`.github/workflows/build-release.yml`) that builds the plugin and standalone app on **macOS** and **Windows**. To get a Windows build without a Windows machine:
+The repo includes a GitHub Actions workflow (`.github/workflows/build-release.yml`) that builds the plugin and standalone app on **macOS** and **Windows**. To get built zips (VST3 + Standalone) on a release:
 
-- **On every push to `main`:** workflow runs and uploads build artifacts (download from the Actions run).
-- **When you publish a Release:** the workflow runs and attaches the macOS and Windows zip files to the release.
+1. **Create the release in GitHub first:** Repo → **Releases** → **Draft a new release** → choose or create a tag (e.g. `v0.1.0`) → publish. (This creates the “Source code” zip only.)
+2. **Run the workflow:** **Actions** → **Build release** → **Run workflow** → enter the same tag (e.g. `v0.1.0`) in “Release tag to attach assets to” → **Run workflow**.
+3. When the run finishes (both macOS and Windows jobs green), the **SliceShuffle-macos.zip** and **SliceShuffle-windows.zip** assets will appear on that release.
 
-So you can create a release (e.g. tag `v0.1.0` and publish), and the Windows zip will appear on the release page automatically.
+You can also download the built zips from the workflow run’s **Artifacts** without creating a release.
 
 ## Roadmap
 

@@ -88,12 +88,25 @@ jobs:
           pattern: SliceShuffle-*
           merge-multiple: false
 
-      - name: List artifacts
-        run: find artifacts -type f
+      - name: Prepare release assets
+        id: prepare
+        run: |
+          mkdir -p release-assets
+          for dir in artifacts/SliceShuffle-*; do
+            [ -d "$dir" ] || continue
+            zip=$(find "$dir" -maxdepth 1 -name '*.zip' -print -quit)
+            [ -n "$zip" ] && cp "$zip" "release-assets/$(basename "$dir").zip"
+          done
+          ls -la release-assets/
+          [ -n "$(ls -A release-assets 2>/dev/null)" ] || { echo "No zip artifacts found"; exit 1; }
+          # Multiline output: list of zip paths for the release action
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          for f in release-assets/*.zip; do [ -f "$f" ] && echo "$f" >> "$GITHUB_OUTPUT"; done
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*.zip
+          files: ${{ steps.prepare.outputs.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

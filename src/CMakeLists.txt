@@ -75,6 +75,7 @@ target_sources(CutShufflePlugin
   PRIVATE
   plugin/PluginProcessor.cpp
   plugin/PluginEditor.cpp
+  plugin/CutShuffleLookAndFeel.cpp
   plugin/StandaloneWindow.cpp
   plugin/TopBarComponent.cpp
   plugin/WaveformOverview.cpp

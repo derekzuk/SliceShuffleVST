@@ -142,11 +142,13 @@ private:
   // Helpers for non-destructive rearrange/preview.
   std::pair<size_t, size_t> getWindowSliceRange(const PreparedState& state) const;
 
-  // Undo/redo for arrangement (playback order) only. gen_ invalidates entries on load/regenerate.
+  // Undo/redo for arrangement (playback order) and optionally mute state. gen_ invalidates entries on load/regenerate.
   struct UndoEntry {
     uint64_t gen{0};
     std::vector<size_t> order;
     std::optional<std::unordered_set<size_t>> selectionToRestore;
+    /** If set, restore mutedSliceIndices to this set (for silence/unsilence undo). */
+    std::optional<std::unordered_set<size_t>> mutedToRestore;
   };
   static constexpr size_t kMaxUndoSteps = 50;
   std::deque<UndoEntry> undo_;
@@ -154,7 +156,8 @@ private:
   uint64_t gen_{0};
   std::optional<std::unordered_set<size_t>> pendingRestoreSelection_;
   void pushUndoEntry(std::vector<size_t> currentOrder,
-                    std::optional<std::unordered_set<size_t>> selectionToRestore = std::nullopt);
+                    std::optional<std::unordered_set<size_t>> selectionToRestore = std::nullopt,
+                    std::optional<std::unordered_set<size_t>> mutedToRestore = std::nullopt);
   void incrementGeneration();
 
   juce::AudioProcessorValueTreeState apvts;

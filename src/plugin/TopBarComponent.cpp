@@ -4,8 +4,10 @@ TopBarComponent::TopBarComponent(CutShufflePluginProcessor& proc) : processor_(p
 {
   loadButton_.setButtonText("Load Sample");
   addAndMakeVisible(loadButton_);
+  loadButton_.getProperties().set (juce::Identifier ("variant"), juce::var ("secondary"));
   resetButton_.setButtonText("Reset");
   addAndMakeVisible(resetButton_);
+  resetButton_.getProperties().set (juce::Identifier ("variant"), juce::var ("destructive"));
   sampleLabel_.setText("No sample loaded", juce::dontSendNotification);
   sampleLabel_.setJustificationType(juce::Justification::centredLeft);
   addAndMakeVisible(sampleLabel_);

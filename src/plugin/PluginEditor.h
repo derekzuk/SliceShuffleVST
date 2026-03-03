@@ -6,6 +6,8 @@
 #include "WaveformView.h"
 #include "WaveformOverview.h"
 #include "ControlPanel.h"
+#include "CutShuffleLookAndFeel.h"
+#include "UiTokens.h"
 
 class CutShufflePluginEditor : public juce::AudioProcessorEditor,
                            public juce::DragAndDropContainer,
@@ -35,6 +37,7 @@ private:
   void scheduleRegenerateSliceMap();
 
   CutShufflePluginProcessor& processorRef;
+  cutshuffle::CutShuffleLookAndFeel cutShuffleLf_;
   TopBarComponent topBar_;
   WaveformOverview waveformOverview_;
   WaveformView waveformView_;

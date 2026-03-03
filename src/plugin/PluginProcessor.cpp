@@ -202,9 +202,10 @@ void CutShufflePluginProcessor::applyNewPreparedState(std::shared_ptr<const Prep
 }
 
 void CutShufflePluginProcessor::pushUndoEntry(std::vector<size_t> currentOrder,
-                                             std::optional<std::unordered_set<size_t>> selectionToRestore)
+                                             std::optional<std::unordered_set<size_t>> selectionToRestore,
+                                             std::optional<std::unordered_set<size_t>> mutedToRestore)
 {
-  undo_.push_back({gen_, std::move(currentOrder), std::move(selectionToRestore)});
+  undo_.push_back({gen_, std::move(currentOrder), std::move(selectionToRestore), std::move(mutedToRestore)});
   redo_.clear();
   while (undo_.size() > kMaxUndoSteps)
     undo_.pop_front();
@@ -231,13 +232,15 @@ void CutShufflePluginProcessor::undo(const std::unordered_set<size_t>& currentSe
   }
   if (!state || state->playbackOrder.size() != entry.order.size())
     return;
-  redo_.push_back({gen_, state->playbackOrder, currentSelection});
+  redo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedSliceIndices});
 
   if (entry.selectionToRestore)
     pendingRestoreSelection_ = entry.selectionToRestore;
 
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(entry.order);
+  if (entry.mutedToRestore)
+    newState->mutedSliceIndices = *entry.mutedToRestore;
   applyNewPreparedState(std::move(newState));
 }
 
@@ -257,13 +260,15 @@ void CutShufflePluginProcessor::redo(const std::unordered_set<size_t>& currentSe
   }
   if (!state || state->playbackOrder.size() != entry.order.size())
     return;
-  undo_.push_back({gen_, state->playbackOrder, currentSelection});
+  undo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedSliceIndices});
 
   if (entry.selectionToRestore)
     pendingRestoreSelection_ = entry.selectionToRestore;
 
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(entry.order);
+  if (entry.mutedToRestore)
+    newState->mutedSliceIndices = *entry.mutedToRestore;
   applyNewPreparedState(std::move(newState));
 }
 
@@ -600,6 +605,7 @@ void CutShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set<s
   if (!anyChange || newMuted == state->mutedSliceIndices)
     return;
 
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedSliceIndices);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->mutedSliceIndices = std::move(newMuted);
   applyNewPreparedState(std::move(newState));

@@ -91,6 +91,16 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
         });
   };
 
+  setLookAndFeel (&cutShuffleLf_);
+  undoButton_.getProperties().set ("variant", juce::var ("tertiary"));
+  redoButton_.getProperties().set ("variant", juce::var ("tertiary"));
+  rearrangeButton_.getProperties().set ("variant", juce::var ("primary"));
+  silenceButton_.getProperties().set ("variant", juce::var ("secondary"));
+  duplicateButton_.getProperties().set ("variant", juce::var ("secondary"));
+  previewButton_.getProperties().set ("variant", juce::var ("secondary"));
+  previewButton_.setClickingTogglesState (true);
+  exportButton_.getProperties().set ("variant", juce::var ("secondary"));
+
   topBar_.setOnLoadClicked([this]()
   {
     auto chooser = std::make_shared<juce::FileChooser>(
@@ -125,6 +135,7 @@ CutShufflePluginEditor::CutShufflePluginEditor(CutShufflePluginProcessor& p)
 
 CutShufflePluginEditor::~CutShufflePluginEditor()
 {
+  setLookAndFeel (nullptr);
   processorRef.getValueTreeState().removeParameterListener("bpm", this);
   processorRef.getValueTreeState().removeParameterListener("granularity", this);
   stopTimer();
@@ -181,7 +192,7 @@ void CutShufflePluginEditor::resized()
 {
   auto r = getLocalBounds().reduced(4);
   const int topH = 36;
-  const int bottomH = 28;
+  const int bottomH = cutshuffle::UiTokens::bottomBarHeight;
   const int panelW = 220;
 
   topBar_.setBounds(r.removeFromTop(topH));
@@ -195,21 +206,37 @@ void CutShufflePluginEditor::resized()
   r.removeFromRight(4);
   controlPanelViewport_.setBounds(rightArea);
   controlPanel_.setSize(rightArea.getWidth(), 380);
-  const int butW = 72;
-  const int undoRedoW = 56;
-  undoButton_.setBounds(bottomBar.removeFromLeft(undoRedoW).reduced(2));
-  bottomBar.removeFromLeft(2);
-  redoButton_.setBounds(bottomBar.removeFromLeft(undoRedoW).reduced(2));
-  bottomBar.removeFromLeft(4);
-  rearrangeButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
-  bottomBar.removeFromLeft(4);
-  silenceButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
-  bottomBar.removeFromLeft(4);
-  duplicateButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
-  bottomBar.removeFromLeft(4);
-  previewButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
-  bottomBar.removeFromLeft(4);
-  exportButton_.setBounds(bottomBar.removeFromLeft(butW).reduced(2));
+
+  const int tertiaryW = cutshuffle::UiTokens::tertiaryButtonWidth;
+  const int secondaryW = cutshuffle::UiTokens::secondaryButtonWidth;
+  const int primaryW = secondaryW + cutshuffle::UiTokens::primaryButtonWidthExtra;
+  const int gap = cutshuffle::UiTokens::buttonGap;
+  const int groupGap = cutshuffle::UiTokens::groupGap;
+
+  // Left group: Undo, Redo (tertiary)
+  auto leftGroup = bottomBar.removeFromLeft (tertiaryW + gap + tertiaryW);
+  undoButton_.setBounds (leftGroup.removeFromLeft (tertiaryW).reduced (2));
+  leftGroup.removeFromLeft (gap);
+  redoButton_.setBounds (leftGroup.removeFromLeft (tertiaryW).reduced (2));
+
+  bottomBar.removeFromLeft (groupGap);
+
+  // Middle group: Rearrange (primary), Silence, Duplicate (secondary)
+  auto midGroup = bottomBar.removeFromLeft (primaryW + gap + secondaryW + gap + secondaryW);
+  rearrangeButton_.setBounds (midGroup.removeFromLeft (primaryW).reduced (2));
+  midGroup.removeFromLeft (gap);
+  silenceButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
+  midGroup.removeFromLeft (gap);
+  duplicateButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
+
+  bottomBar.removeFromLeft (groupGap);
+
+  // Right group: Preview, Export (secondary); Export rightmost
+  auto rightGroup = bottomBar;
+  previewButton_.setBounds (rightGroup.removeFromLeft (secondaryW).reduced (2));
+  rightGroup.removeFromLeft (gap);
+  exportButton_.setBounds (rightGroup.removeFromLeft (secondaryW).reduced (2));
+
   waveformView_.setBounds(r);
 }
 
@@ -220,6 +247,7 @@ void CutShufflePluginEditor::timerCallback()
   waveformOverview_.repaint();
   waveformView_.refresh();
   previewButton_.setButtonText(processorRef.isPreviewActive() ? "Stop" : "Preview");
+  previewButton_.setToggleState (processorRef.isPreviewActive(), juce::dontSendNotification);
   undoButton_.setEnabled(processorRef.canUndo());
   redoButton_.setEnabled(processorRef.canRedo());
 

@@ -1,0 +1,99 @@
+# Build SliceShuffle on macOS and Windows for releases.
+# Runs on: push to main (build only), or when a release is published / workflow_dispatch.
+name: Build release
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos
+          - os: windows-latest
+            name: windows
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (macOS)
+        if: matrix.os == 'macos-latest'
+        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES=arm64
+
+      - name: Configure (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build (macOS)
+        if: matrix.os == 'macos-latest'
+        run: cmake --build build --config Release
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cmake --build build --config Release
+
+      - name: Package (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ -z "$VERSION" ] || [ "$VERSION" = "main" ] && VERSION="snapshot"
+          mkdir -p release
+          cp -R build/src/SliceShufflePlugin_artefacts/Release/VST3/SliceShuffle.vst3 release/ 2>/dev/null || cp -R build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3 release/
+          cp -R build/src/SliceShufflePlugin_artefacts/Release/Standalone/SliceShuffle.app release/ 2>/dev/null || cp -R build/src/SliceShufflePlugin_artefacts/Standalone/SliceShuffle.app release/
+          cp build/src/SliceShuffleCli_artefacts/Release/SliceShuffleCli release/ 2>/dev/null || cp build/src/SliceShuffleCli_artefacts/SliceShuffleCli release/
+          cd release && zip -r "../SliceShuffle-${{ matrix.name }}-${VERSION}.zip" . && cd ..
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ver = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME.TrimStart('v') } else { 'snapshot' }
+          New-Item -ItemType Directory -Path release -Force
+          Copy-Item -Recurse -Path "build\src\SliceShufflePlugin_artefacts\Release\VST3\SliceShuffle.vst3" -Destination "release\"
+          $standaloneDir = "build\src\SliceShufflePlugin_artefacts\Release\Standalone"
+          if (Test-Path $standaloneDir) {
+            Copy-Item -Path "$standaloneDir\*" -Destination "release\" -Recurse -Force
+          }
+          $cliExe = "build\src\SliceShuffleCli_artefacts\Release\SliceShuffleCli.exe"
+          if (Test-Path $cliExe) { Copy-Item $cliExe -Destination "release\" }
+          Compress-Archive -Path "release\*" -DestinationPath "SliceShuffle-${{ matrix.name }}-$ver.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SliceShuffle-${{ matrix.name }}
+          path: SliceShuffle-${{ matrix.name }}-*.zip
+
+  # On release, attach the built zips to the release
+  upload-release:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: SliceShuffle-*
+          merge-multiple: false
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

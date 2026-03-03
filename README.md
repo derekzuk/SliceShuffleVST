@@ -83,11 +83,20 @@ cmake -G "Ninja" -B build
 
 - **Plugin:** Load `SliceShuffle.vst3` in FL Studio (or any VST3 host). Path: `build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3`
 
-  Install to system VST3 folder (macOS) so your DAW picks it up:
+  Install to system VST3 folder so your DAW picks it up (macOS example):
 
   ```bash
   sudo cp -R build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3 /Library/Audio/Plug-Ins/VST3/
   ```
+
+## GitHub Releases (macOS + Windows)
+
+The repo includes a GitHub Actions workflow (`.github/workflows/build-release.yml`) that builds the plugin and standalone app on **macOS** and **Windows**. To get a Windows build without a Windows machine:
+
+- **On every push to `main`:** workflow runs and uploads build artifacts (download from the Actions run).
+- **When you publish a Release:** the workflow runs and attaches the macOS and Windows zip files to the release.
+
+So you can create a release (e.g. tag `v0.1.0` and publish), and the Windows zip will appear on the release page automatically.
 
 ## Roadmap
 

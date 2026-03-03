@@ -14,6 +14,6 @@ struct PreparedState {
   std::vector<sliceshuffle::Slice> slices;
   /** Playback order: order[i] = source (physical) slice index for logical position i. */
   std::vector<size_t> playbackOrder;
-  /** Physical slice indices (into slices) that should be treated as silent (non-destructive mute). */
-  std::unordered_set<size_t> mutedSliceIndices;
+  /** Logical positions (indices into playbackOrder) that should be treated as silent (non-destructive mute). */
+  std::unordered_set<size_t> mutedLogicalPositions;
 };

@@ -117,12 +117,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
       juce::NormalisableRange<float>(40.f, 240.f, 0.1f, 1.f), 120.f));
   layout.add(std::make_unique<juce::AudioParameterChoice>(
       juce::ParameterID{kGranularityId, 1}, "Granularity",
-      juce::StringArray{"1/4", "1/2", "1", "2", "4"}, 1)); // index 1 = "1/2" beat default
+      juce::StringArray{"1/4", "1/2", "1", "2", "4"}, 2)); // index 2 = "1" beat default
   layout.add(std::make_unique<juce::AudioParameterInt>(
       juce::ParameterID{kSeedId, 1}, "Seed", 0, 999999, 0));
   // Window = number of slices (min 4); we use even count only (4, 6, 8, …)
   layout.add(std::make_unique<juce::AudioParameterInt>(
-      juce::ParameterID{kWindowBeatsId, 1}, "Window", 4, 64, 16));
+      juce::ParameterID{kWindowBeatsId, 1}, "Window", 4, 64, 4));
   layout.add(std::make_unique<juce::AudioParameterFloat>(
       juce::ParameterID{kWindowPositionId, 1}, "Window position",
       juce::NormalisableRange<float>(0.f, 1.f, 0.01f, 1.f), 0.f));
@@ -263,7 +263,7 @@ void SliceShufflePluginProcessor::undo(const std::unordered_set<size_t>& current
   }
   if (!state || state->playbackOrder.size() != entry.order.size())
     return;
-  redo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedSliceIndices});
+  redo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedLogicalPositions});
 
   if (entry.selectionToRestore)
     pendingRestoreSelection_ = entry.selectionToRestore;
@@ -271,7 +271,7 @@ void SliceShufflePluginProcessor::undo(const std::unordered_set<size_t>& current
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(entry.order);
   if (entry.mutedToRestore)
-    newState->mutedSliceIndices = *entry.mutedToRestore;
+    newState->mutedLogicalPositions = *entry.mutedToRestore;
   applyNewPreparedState(std::move(newState));
 }
 
@@ -291,7 +291,7 @@ void SliceShufflePluginProcessor::redo(const std::unordered_set<size_t>& current
   }
   if (!state || state->playbackOrder.size() != entry.order.size())
     return;
-  undo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedSliceIndices});
+  undo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedLogicalPositions});
 
   if (entry.selectionToRestore)
     pendingRestoreSelection_ = entry.selectionToRestore;
@@ -299,7 +299,7 @@ void SliceShufflePluginProcessor::redo(const std::unordered_set<size_t>& current
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(entry.order);
   if (entry.mutedToRestore)
-    newState->mutedSliceIndices = *entry.mutedToRestore;
+    newState->mutedLogicalPositions = *entry.mutedToRestore;
   applyNewPreparedState(std::move(newState));
 }
 
@@ -531,6 +531,13 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
     for (size_t p : positions)
       physAtSelected.push_back(state->playbackOrder[p]);
 
+    // Capture mute flags for the selected positions so we can permute them
+    // alongside the slices (muted "chips" should move with the shuffle).
+    std::vector<bool> mutedFlags;
+    mutedFlags.reserve(positions.size());
+    for (size_t p : positions)
+      mutedFlags.push_back(state->mutedLogicalPositions.count(p) != 0);
+
     const uint32_t seed = static_cast<uint32_t>(juce::Random::getSystemRandom().nextInt(1000000));
     const std::vector<size_t> shuffledOrder =
         sliceshuffle::SliceShuffleEngine::shuffledSliceOrder(physAtSelected.size(), seed, true);
@@ -539,11 +546,26 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
     for (size_t i = 0; i < positions.size(); ++i)
       newOrder[positions[i]] = physAtSelected[shuffledOrder[i]];
 
-    if (newOrder == state->playbackOrder)
+    // Build new muted set: start from current, then permute flags only within "positions".
+    std::unordered_set<size_t> newMuted = state->mutedLogicalPositions;
+    // Clear all mute flags at the affected positions.
+    for (size_t p : positions)
+      newMuted.erase(p);
+    // Reapply flags according to the same permutation used for slices.
+    for (size_t i = 0; i < positions.size(); ++i)
+    {
+      const bool wasMuted = mutedFlags[shuffledOrder[i]];
+      if (wasMuted)
+        newMuted.insert(positions[i]);
+    }
+
+    if (newOrder == state->playbackOrder && newMuted == state->mutedLogicalPositions)
       return;
-    pushUndoEntry(state->playbackOrder);
+
+    pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
     auto newState = std::make_shared<PreparedState>(*state);
     newState->playbackOrder = std::move(newOrder);
+    newState->mutedLogicalPositions = std::move(newMuted);
     applyNewPreparedState(std::move(newState));
     apvts.getParameterAsValue(kSeedId).setValue(static_cast<int>(seed));
     return;
@@ -576,6 +598,13 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
   for (size_t logical : logicalPositions)
     physAtLogical.push_back(state->playbackOrder[logical]);
 
+  // Capture mute flags for the logical positions in the window so we can
+  // permute them alongside the slices.
+  std::vector<bool> mutedFlags;
+  mutedFlags.reserve(count);
+  for (size_t logical : logicalPositions)
+    mutedFlags.push_back(state->mutedLogicalPositions.count(logical) != 0);
+
   // Permute indices into physAtLogical; keeps duplicates intact.
   const std::vector<size_t> order =
       sliceshuffle::SliceShuffleEngine::shuffledSliceOrder(count, seed, true);
@@ -589,11 +618,24 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
     newOrder[dstLogical] = srcPhys;
   }
 
-  if (newOrder == state->playbackOrder)
+  // Build new muted set: start from current, then permute flags only within the window.
+  std::unordered_set<size_t> newMuted = state->mutedLogicalPositions;
+  for (size_t logical : logicalPositions)
+    newMuted.erase(logical);
+  for (size_t i = 0; i < count; ++i)
+  {
+    const bool wasMuted = mutedFlags[order[i]];
+    if (wasMuted)
+      newMuted.insert(logicalPositions[i]);
+  }
+
+  if (newOrder == state->playbackOrder && newMuted == state->mutedLogicalPositions)
     return;
-  pushUndoEntry(state->playbackOrder);
+
+  pushUndoEntry(state->playbackOrder, {}, state->mutedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(newOrder);
+  newState->mutedLogicalPositions = std::move(newMuted);
 
   applyNewPreparedState(std::move(newState));
 
@@ -617,28 +659,25 @@ void SliceShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set
   if (totalPositions == 0)
     return;
 
-  // Build new muted set by toggling the physical slice indices currently at the given logical positions.
-  std::unordered_set<size_t> newMuted = state->mutedSliceIndices;
+  // Build new muted set by toggling the logical positions themselves (duplicates can be muted independently).
+  std::unordered_set<size_t> newMuted = state->mutedLogicalPositions;
   bool anyChange = false;
   for (size_t pos : selectedPositions)
   {
     if (pos >= totalPositions)
       continue;
-    const size_t phys = state->playbackOrder[pos];
-    if (phys >= state->slices.size())
-      continue;
-    if (newMuted.erase(phys) == 0)
+    if (newMuted.erase(pos) == 0)
     {
-      newMuted.insert(phys);
+      newMuted.insert(pos);
     }
     anyChange = true;
   }
-  if (!anyChange || newMuted == state->mutedSliceIndices)
+  if (!anyChange || newMuted == state->mutedLogicalPositions)
     return;
 
-  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedSliceIndices);
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
-  newState->mutedSliceIndices = std::move(newMuted);
+  newState->mutedLogicalPositions = std::move(newMuted);
   applyNewPreparedState(std::move(newState));
 }
 
@@ -765,6 +804,7 @@ std::vector<size_t> SliceShufflePluginProcessor::moveSelectedSlicesInOrder(
   std::vector<size_t> order = state->playbackOrder;
   const size_t n = order.size();
   const std::vector<sliceshuffle::Slice>& slices = state->slices;
+  std::unordered_set<size_t> newMuted = state->mutedLogicalPositions;
 
   // selectedPositions = the visual positions (slice indices) the user clicked
   std::vector<size_t> positions;
@@ -808,6 +848,22 @@ std::vector<size_t> SliceShufflePluginProcessor::moveSelectedSlicesInOrder(
       for (size_t i = 0; i < segLen; ++i)
         order[runStart + (i + 1) % segLen] = oldOrderSeg[i];
 
+      // Rotate mute flags for this segment in the same way (chips move right).
+      std::vector<bool> oldMuteSeg(segLen);
+      for (size_t i = 0; i < segLen; ++i)
+        oldMuteSeg[i] = newMuted.count(runStart + i) != 0;
+      for (size_t i = 0; i < segLen; ++i)
+      {
+        const size_t idx = runStart + i;
+        newMuted.erase(idx);
+      }
+      for (size_t i = 0; i < segLen; ++i)
+      {
+        const size_t dstIdx = runStart + ((i + 1) % segLen);
+        if (oldMuteSeg[i])
+          newMuted.insert(dstIdx);
+      }
+
     }
     else
     {
@@ -829,14 +885,31 @@ std::vector<size_t> SliceShufflePluginProcessor::moveSelectedSlicesInOrder(
       for (size_t i = 0; i < segLen; ++i)
         order[segStart + (i + segLen - 1) % segLen] = oldOrderSeg[i];
 
+      // Rotate mute flags for this segment in the same way (chips move left).
+      std::vector<bool> oldMuteSeg(segLen);
+      for (size_t i = 0; i < segLen; ++i)
+        oldMuteSeg[i] = newMuted.count(segStart + i) != 0;
+      for (size_t i = 0; i < segLen; ++i)
+      {
+        const size_t idx = segStart + i;
+        newMuted.erase(idx);
+      }
+      for (size_t i = 0; i < segLen; ++i)
+      {
+        const size_t dstIdx = segStart + ((i + segLen - 1) % segLen);
+        if (oldMuteSeg[i])
+          newMuted.insert(dstIdx);
+      }
+
     }
   }
 
-  if (order == state->playbackOrder)
+  if (order == state->playbackOrder && newMuted == state->mutedLogicalPositions)
     return {};
-  pushUndoEntry(state->playbackOrder, selectedPositions);
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = order;
+  newState->mutedLogicalPositions = std::move(newMuted);
 
   applyNewPreparedState(std::move(newState));
   return order;
@@ -977,7 +1050,7 @@ void SliceShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   const int numOutCh = buffer.getNumChannels();
   const int numSrcCh = state->buffer.getNumChannels();
   const size_t numSlices = state->slices.size();
-  const auto& mutedSlices = state->mutedSliceIndices;
+  const auto& mutedPositions = state->mutedLogicalPositions;
 
   // Handle MIDI
   for (const auto midi : midiMessages)
@@ -992,15 +1065,17 @@ void SliceShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
       lastTriggeredSliceIndex.store(sliceIndex);
 
+      const size_t totalPositions = state->playbackOrder.size();
       const size_t orderIndex = static_cast<size_t>(sliceIndex);
-      const size_t srcSliceIdx = orderIndex < state->playbackOrder.size()
-          ? state->playbackOrder[orderIndex]
-          : orderIndex;
-      if (srcSliceIdx >= state->slices.size())
+      if (orderIndex >= totalPositions)
         continue;
 
-      // Non-destructive mute: skip starting voices for muted physical slices.
-      if (!mutedSlices.empty() && mutedSlices.count(srcSliceIdx) != 0)
+      // Non-destructive mute: skip starting voices for muted logical positions.
+      if (!mutedPositions.empty() && mutedPositions.count(orderIndex) != 0)
+        continue;
+
+      const size_t srcSliceIdx = state->playbackOrder[orderIndex];
+      if (srcSliceIdx >= state->slices.size())
         continue;
 
       const float vel = msg.getFloatVelocity();
@@ -1175,13 +1250,13 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
     clearSample();
     if (auto* param = apvts.getParameter(kWindowBeatsId))
     {
-      // Default window = 16 slices; normalized = (16 - 4) / (64 - 4)
-      param->setValueNotifyingHost(12.0f / 60.0f);
+      // Default window = 4 slices; normalized = (4 - 4) / (64 - 4)
+      param->setValueNotifyingHost(0.0f);
     }
     if (auto* param = apvts.getParameter(kGranularityId))
     {
-      // Default granularity = 1/2 beat (index 1); range is 0..4
-      param->setValueNotifyingHost(1.0f / 4.0f); // normalized: index 1 of 5 = 1/4
+      // Default granularity = 1 beat (index 2); range is 0..4
+      param->setValueNotifyingHost(2.0f / 4.0f); // normalized: index 2 of 5 = 2/4
     }
     return;
   }
@@ -1251,12 +1326,12 @@ void SliceShufflePluginProcessor::resetArrangement()
   std::vector<size_t> identityOrder(n);
   std::iota(identityOrder.begin(), identityOrder.end(), size_t(0));
 
-  if (state->playbackOrder == identityOrder && state->mutedSliceIndices.empty())
+  if (state->playbackOrder == identityOrder && state->mutedLogicalPositions.empty())
     return;
   pushUndoEntry(state->playbackOrder);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(identityOrder);
-  newState->mutedSliceIndices.clear();
+  newState->mutedLogicalPositions.clear();
 
   applyNewPreparedState(std::move(newState));
 }
@@ -1382,8 +1457,8 @@ void SliceShufflePluginProcessor::renderWindowToBuffer(const PreparedState& stat
     const bool applyFadeIn = !continuousWithPrev;
     const bool applyFadeOut = !continuousWithNext;
 
-    const bool isMuted = !state.mutedSliceIndices.empty() &&
-                         state.mutedSliceIndices.count(srcIdx) != 0;
+    const bool isMuted = !state.mutedLogicalPositions.empty() &&
+                         state.mutedLogicalPositions.count(logical) != 0;
 
     if (!isMuted)
     {
@@ -1483,8 +1558,8 @@ void SliceShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState&
     const bool applyFadeInAtStart = atSliceStart && !continuousWithPrev;
     const bool applyFadeOutAtEnd = atSliceEnd && !continuousWithNext;
 
-    const bool isMuted = !state.mutedSliceIndices.empty() &&
-                         state.mutedSliceIndices.count(srcIdx) != 0;
+    const bool isMuted = !state.mutedLogicalPositions.empty() &&
+                         state.mutedLogicalPositions.count(logical) != 0;
     if (!isMuted)
     {
       for (int ch = 0; ch < numCh; ++ch)

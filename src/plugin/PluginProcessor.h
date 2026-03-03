@@ -147,7 +147,7 @@ private:
     uint64_t gen{0};
     std::vector<size_t> order;
     std::optional<std::unordered_set<size_t>> selectionToRestore;
-    /** If set, restore mutedSliceIndices to this set (for silence/unsilence undo). */
+    /** If set, restore mutedLogicalPositions to this set (for silence/unsilence undo). */
     std::optional<std::unordered_set<size_t>> mutedToRestore;
   };
   static constexpr size_t kMaxUndoSteps = 50;

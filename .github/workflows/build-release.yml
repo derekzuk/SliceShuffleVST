@@ -111,6 +111,8 @@ jobs:
     # Run when we have a release event, or when manually run with a tag name
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name != '')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to attach assets to the release (update release)
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4

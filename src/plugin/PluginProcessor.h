@@ -75,8 +75,9 @@ public:
   void renderSampleRangeToBuffer(const PreparedState& state, juce::int64 startSample, juce::int64 endSample,
                                  juce::AudioBuffer<float>& out) const;
 
-  /** Called from UI thread. Starts async load; status becomes Loading then Ready/Error. */
-  void loadSampleFromFile(const juce::File& file);
+  /** Called from UI thread. Starts async load; status becomes Loading then Ready/Error.
+   *  If restoreArrangement is true (e.g. preset load), applies pending playback order and muted positions and does not reset window position. */
+  void loadSampleFromFile(const juce::File& file, bool restoreArrangement = false);
   /** Clear sample and set status to Idle. */
   void clearSample();
   /** Regenerate slice map for current BPM/granularity/seed (async). */
@@ -171,8 +172,9 @@ private:
   mutable std::shared_mutex stateMutex_;
 
   // When restoring from saved state we may have a custom playback order
-  // that should be applied after the sample has been (re)loaded.
+  // and muted positions to apply after the sample has been (re)loaded.
   std::vector<size_t> pendingPlaybackOrder_;
+  std::unordered_set<size_t> pendingMutedLogicalPositions_;
 
   juce::ThreadPool loadPool_{1};
   std::atomic<uint64_t> loadJobId_{0};

@@ -15,6 +15,7 @@ constexpr const char* kWindowPositionId = "windowPosition";
 constexpr const char* kStateVersionAttr = "stateVersion";
 constexpr const char* kSamplePathAttr = "samplePath";
 constexpr const char* kPlaybackOrderAttr = "playbackOrder";
+constexpr const char* kMutedPositionsAttr = "mutedPositions";
 
 constexpr int kCurrentStateVersion = 1;
 
@@ -380,6 +381,12 @@ void SliceShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer
   {
     state->playbackOrder = pendingPlaybackOrder_;
     pendingPlaybackOrder_.clear();
+    // Restore muted positions; only keep indices that are in range for this arrangement
+    const size_t n = state->playbackOrder.size();
+    for (size_t pos : pendingMutedLogicalPositions_)
+      if (pos < n)
+        state->mutedLogicalPositions.insert(pos);
+    pendingMutedLogicalPositions_.clear();
   }
   else
   {
@@ -397,7 +404,7 @@ void SliceShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer
   incrementGeneration();
 }
 
-void SliceShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
+void SliceShufflePluginProcessor::loadSampleFromFile(const juce::File& file, bool restoreArrangement)
 {
   if (!file.existsAsFile())
   {
@@ -410,7 +417,7 @@ void SliceShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
   setLoadStatus(LoadStatus::Loading);
   setLoadError({});
 
-  loadPool_.addJob([this, file, jobId]()
+  loadPool_.addJob([this, file, jobId, restoreArrangement]()
   {
     auto loaded = loadWav(file);
     if (jobId != loadJobId_.load())
@@ -441,11 +448,15 @@ void SliceShufflePluginProcessor::loadSampleFromFile(const juce::File& file)
     juce::AudioBuffer<float> decodedBuffer = std::move(loaded->buffer);
     const double sr = loaded->sampleRate;
 
-    juce::MessageManager::callAsync([this, buf = std::move(decodedBuffer), sr, displayName, path]() mutable
+    juce::MessageManager::callAsync([this, buf = std::move(decodedBuffer), sr, displayName, path, restoreArrangement]() mutable
     {
-      buildPreparedStateFromBuffer(std::move(buf), sr, displayName, path, true);
-      if (auto* param = apvts.getParameter(kWindowPositionId))
-        param->setValueNotifyingHost(0.0f);
+      // When restoring preset/state, use saved arrangement (forceIdentityOrder = false). Otherwise start with identity order.
+      buildPreparedStateFromBuffer(std::move(buf), sr, displayName, path, !restoreArrangement);
+      if (!restoreArrangement)
+      {
+        if (auto* param = apvts.getParameter(kWindowPositionId))
+          param->setValueNotifyingHost(0.0f);
+      }
     });
   });
 }
@@ -1198,7 +1209,7 @@ std::unique_ptr<juce::XmlElement> SliceShufflePluginProcessor::createFullStateXm
     xml->setAttribute(kSamplePathAttr, loadedSamplePath_);
   }
 
-  // Persist playback order so manual slice reordering survives reloads
+  // Persist playback order (and duplicated slices) and muted positions
   if (auto prepared = getPreparedState())
   {
     if (!prepared->playbackOrder.empty())
@@ -1212,6 +1223,19 @@ std::unique_ptr<juce::XmlElement> SliceShufflePluginProcessor::createFullStateXm
         orderString << static_cast<int>(prepared->playbackOrder[i]);
       }
       xml->setAttribute(kPlaybackOrderAttr, orderString);
+    }
+    if (!prepared->mutedLogicalPositions.empty())
+    {
+      juce::String mutedString;
+      bool first = true;
+      for (size_t pos : prepared->mutedLogicalPositions)
+      {
+        if (!first)
+          mutedString << ",";
+        mutedString << static_cast<int>(pos);
+        first = false;
+      }
+      xml->setAttribute(kMutedPositionsAttr, mutedString);
     }
   }
 
@@ -1227,8 +1251,9 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
   const int version = xml.getIntAttribute(kStateVersionAttr, 0);
   juce::ignoreUnused(version);
 
-  // Restore any saved playback order so it can be applied after sample load
+  // Restore any saved playback order and muted positions for application after sample load
   pendingPlaybackOrder_.clear();
+  pendingMutedLogicalPositions_.clear();
   const juce::String playbackOrderStr = xml.getStringAttribute(kPlaybackOrderAttr, {});
   if (playbackOrderStr.isNotEmpty())
   {
@@ -1241,6 +1266,19 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
       const int v = t.getIntValue();
       if (v >= 0)
         pendingPlaybackOrder_.push_back(static_cast<size_t>(v));
+    }
+  }
+  const juce::String mutedStr = xml.getStringAttribute(kMutedPositionsAttr, {});
+  if (mutedStr.isNotEmpty())
+  {
+    juce::StringArray tokens;
+    tokens.addTokens(mutedStr, ",", "");
+    tokens.removeEmptyStrings();
+    for (const auto& t : tokens)
+    {
+      const int v = t.getIntValue();
+      if (v >= 0)
+        pendingMutedLogicalPositions_.insert(static_cast<size_t>(v));
     }
   }
 
@@ -1269,7 +1307,7 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
   juce::File f(path);
   if (f.existsAsFile())
   {
-    loadSampleFromFile(f);
+    loadSampleFromFile(f, true);  // apply saved playback order and muted positions when load completes
   }
   else
   {

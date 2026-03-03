@@ -47,16 +47,16 @@ void ControlPanel::resized()
   const int labelW = 72;
 
   auto row = [&]() { return r.removeFromTop(rowH); };
-  auto leftLabel = [&](juce::Label& l, int w = labelW)
+  auto leftLabel = [&](juce::Label& l, int w)
   {
     l.setBounds(row().removeFromLeft(w).reduced(2));
   };
 
-  leftLabel(bpmLabel_);
+  leftLabel(bpmLabel_, labelW);
   bpmSlider_.setBounds(row().reduced(2));
   r.removeFromTop(4);
 
-  leftLabel(granularityLabel_);
+  leftLabel(granularityLabel_, labelW);
   granularityCombo_.setBounds(row().reduced(2));
   r.removeFromTop(4);
 

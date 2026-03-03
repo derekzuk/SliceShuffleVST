@@ -2,6 +2,8 @@
 
 BPM-based WAV slicer: slice a WAV on a BPM grid, rearrange slices randomly. Built with **JUCE** (CMake-first). Targets: **CLI** (offline) and **VST3** (e.g. FL Studio).
 
+![SliceShuffle](docs/screenshot.png)
+
 ## Project layout
 
 - **CMake-first** — no Projucer; uses JUCE’s official CMake API.

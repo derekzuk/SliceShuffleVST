@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "../cli/WavLoader.h"
+#include "../cli/BpmDetector.h"
 #include "../dsp/SliceShuffleEngine.h"
 #include <algorithm>
 #include <cmath>
@@ -448,7 +449,11 @@ void SliceShufflePluginProcessor::loadSampleFromFile(const juce::File& file, boo
     juce::AudioBuffer<float> decodedBuffer = std::move(loaded->buffer);
     const double sr = loaded->sampleRate;
 
-    juce::MessageManager::callAsync([this, buf = std::move(decodedBuffer), sr, displayName, path, restoreArrangement]() mutable
+    std::optional<double> detectedBpm;
+    if (!restoreArrangement)
+      detectedBpm = detectBpm(decodedBuffer, sr);
+
+    juce::MessageManager::callAsync([this, buf = std::move(decodedBuffer), sr, displayName, path, restoreArrangement, detectedBpm]() mutable
     {
       // When restoring preset/state, use saved arrangement (forceIdentityOrder = false). Otherwise start with identity order.
       buildPreparedStateFromBuffer(std::move(buf), sr, displayName, path, !restoreArrangement);
@@ -456,6 +461,15 @@ void SliceShufflePluginProcessor::loadSampleFromFile(const juce::File& file, boo
       {
         if (auto* param = apvts.getParameter(kWindowPositionId))
           param->setValueNotifyingHost(0.0f);
+        if (detectedBpm && *detectedBpm > 0)
+        {
+          if (auto* bpmParam = apvts.getParameter(kBpmId))
+          {
+            const float bpmClamped = static_cast<float>(std::clamp(*detectedBpm, 40.0, 240.0));
+            const float norm = (bpmClamped - 40.f) / 200.f;
+            bpmParam->setValueNotifyingHost(norm);
+          }
+        }
       }
     });
   });

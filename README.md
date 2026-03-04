@@ -1,6 +1,6 @@
 # SliceShuffle
 
-BPM-based WAV slicer: slice a WAV on a BPM grid, rearrange slices randomly. Built with **JUCE** (CMake-first). Targets: **CLI** (offline) and **VST3** (e.g. FL Studio).
+BPM-based audio slicer: slice WAV, MP3, or M4A on a BPM grid, rearrange slices randomly. Built with **JUCE** (CMake-first). Targets: **CLI** (offline) and **VST3** (e.g. FL Studio).
 
 ![SliceShuffle](docs/screenshot.png)
 
@@ -11,7 +11,7 @@ BPM-based WAV slicer: slice a WAV on a BPM grid, rearrange slices randomly. Buil
 - **Out-of-source builds** — all build artifacts go in `build/` (gitignored).
 - **Separated layers:**
   - `src/dsp/` — pure slicing/shuffle logic, **no JUCE** (unit-testable without a DAW).
-  - `src/cli/` — console app: load WAV → slice by BPM → shuffle → write WAV.
+  - `src/cli/` — console app: load WAV/MP3/M4A → slice by BPM → shuffle → write WAV.
   - `src/plugin/` — VST3 (+ Standalone): `AudioProcessor` + editor, uses the same DSP core.
 
 ## Requirements
@@ -78,7 +78,7 @@ cmake -G "Ninja" -B build
 
 - **CLI:**  
   `./build/src/SliceShuffleCli_artefacts/SliceShuffleCli input.wav output.wav --bpm 120`  
-  (Full usage to be implemented: `SliceShuffleCli input.wav output.wav --bpm 120`.)
+  Input can be WAV, MP3, or M4A (M4A on macOS); output is WAV. Example: `SliceShuffleCli input.mp3 output.wav --bpm 120`
 
 - **Standalone app (macOS):**  
   `./build/src/SliceShufflePlugin_artefacts/Standalone/SliceShuffle.app/Contents/MacOS/SliceShuffle`

@@ -11,5 +11,5 @@ struct LoadedWav {
   juce::int64 lengthInSamples{0};
 };
 
-/** Load a WAV (or other supported format) into memory. Returns nullopt on failure. */
+/** Load WAV, MP3, M4A (and other registered formats) into memory. Returns nullopt on failure. */
 std::optional<LoadedWav> loadWav(const juce::File& file);

@@ -35,6 +35,7 @@ target_compile_definitions(SliceShuffleCli
   PRIVATE
   JUCE_WEB_BROWSER=0
   JUCE_USE_CURL=0
+  JUCE_USE_MP3AUDIOFORMAT=1
 )
 
 target_link_libraries(SliceShuffleCli
@@ -83,6 +84,7 @@ target_sources(SliceShufflePlugin
   plugin/ControlPanel.cpp
   cli/WavLoader.cpp
   cli/WavWriter.cpp
+  cli/BpmDetector.cpp
 )
 
 target_compile_definitions(SliceShufflePlugin
@@ -92,6 +94,7 @@ target_compile_definitions(SliceShufflePlugin
   JUCE_VST3_CAN_REPLACE_VST2=0
   PRIVATE
   JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
+  JUCE_USE_MP3AUDIOFORMAT=1
 )
 
 target_link_libraries(SliceShufflePlugin

@@ -105,7 +105,7 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
   {
     auto chooser = std::make_shared<juce::FileChooser>(
         "Load sample", lastLoadedPath_.existsAsFile() ? lastLoadedPath_ : juce::File{},
-        "*.wav;*.aiff;*.aif");
+        "*.wav;*.mp3;*.m4a;*.aiff;*.aif");
     chooser->launchAsync(
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
         [this, chooser](const juce::FileChooser& c)

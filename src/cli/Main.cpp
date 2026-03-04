@@ -1,4 +1,4 @@
-// SliceShuffle CLI: load WAV → slice by BPM → shuffle slices → render with crossfades → write WAV.
+// SliceShuffle CLI: load WAV/MP3/M4A → slice by BPM → shuffle slices → render with crossfades → write WAV.
 
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
@@ -12,7 +12,7 @@
 #include <cstdlib>
 
 static void printUsage(const char* exe) {
-  std::cerr << "Usage: " << exe << " <input.wav> <output.wav> --bpm <bpm> [options]\n"
+  std::cerr << "Usage: " << exe << " <input.wav|mp3|m4a> <output.wav> --bpm <bpm> [options]\n"
             << "  --bpm <bpm>              BPM for grid (required)\n"
             << "  --granularity <n>         Slices per beat (default: 1). Higher = finer chops (2, 4, 8...)\n"
             << "  --beats-per-slice <n>     Alternative: beats per slice (default: 1). Overridden by --granularity\n"

@@ -28,7 +28,7 @@ Your DAW will then list SliceShuffle in its plugin browser (VST3).
 
 1. **Load a sample** — Click **Load Sample** and choose a WAV, MP3, M4A, or AIFF file. BPM is detected automatically; you can change it with the BPM slider.
 2. **Adjust settings** — Set **Granularity** (slice size in beats) and **Window** (how many slices are visible and in play).
-3. **Rearrange** — Use **Shuffle** to randomize the order of slices. Select specific slices (click/drag on the waveform) to shuffle only those, or use **Silence** / **Duplicate** on the selection.
+3. **Rearrange** — Use **Shuffle** to randomize the order of slices. To select specific slices, hold **Shift** and click or drag on the waveform; then you can shuffle only those, or use **Silence** / **Duplicate** on the selection.
 4. **Preview** — Click **Preview** (or press Space) to hear the current arrangement.
 5. **Export** — Click **Export** to save the current window as a WAV file. You can also drag from the waveform view into a DAW or folder to export.
 

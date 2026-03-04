@@ -52,11 +52,11 @@ void TopBarComponent::refresh()
   switch (status)
   {
   case SliceShufflePluginProcessor::LoadStatus::Idle:
-    statusText = "—";
+    statusText = "";
     statusColour = juce::Colours::grey;
     break;
   case SliceShufflePluginProcessor::LoadStatus::Loading:
-    statusText = "Loading…";
+    statusText = "Loading...";
     statusColour = juce::Colours::orange;
     break;
   case SliceShufflePluginProcessor::LoadStatus::Ready:
@@ -84,6 +84,6 @@ void TopBarComponent::refresh()
   {
     juce::String err = processor_.getLoadErrorText();
     if (err.isNotEmpty())
-      sampleLabel_.setText(name + " — " + err, juce::dontSendNotification);
+      sampleLabel_.setText(name + " - " + err, juce::dontSendNotification);
   }
 }

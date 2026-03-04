@@ -1,111 +1,63 @@
 # SliceShuffle
 
-BPM-based audio slicer: slice WAV, MP3, or M4A on a BPM grid, rearrange slices randomly. Built with **JUCE** (CMake-first). Targets: **CLI** (offline) and **VST3** (e.g. FL Studio).
+SliceShuffle slices your audio (WAV, MP3, M4A) on a BPM grid and lets you shuffle the slices randomly. Use it as a **plugin** in your DAW or as a **command-line tool** for quick offline processing.
 
 ![SliceShuffle](docs/screenshot.png)
 
-## Project layout
+## What it does
 
-- **CMake-first** — no Projucer; uses JUCE’s official CMake API.
-- **JUCE as submodule** — pinned at a known commit for reproducible builds.
-- **Out-of-source builds** — all build artifacts go in `build/` (gitignored).
-- **Separated layers:**
-  - `src/dsp/` — pure slicing/shuffle logic, **no JUCE** (unit-testable without a DAW).
-  - `src/cli/` — console app: load WAV/MP3/M4A → slice by BPM → shuffle → write WAV.
-  - `src/plugin/` — VST3 (+ Standalone): `AudioProcessor` + editor, uses the same DSP core.
+- **Load** a sample (WAV, MP3, M4A, AIFF).
+- **Detect BPM** automatically when you load a file, or set it yourself.
+- **Slice** the audio into beats (with adjustable granularity: ¼, ½, 1, 2, or 4 beats per slice).
+- **Shuffle** slices randomly, silence or duplicate parts, then **export** the result as WAV.
 
-## Requirements
+## Getting SliceShuffle
 
-- **CMake** 3.22+
-- **C++17** (or as required by JUCE)
-- **JUCE** (added as submodule; see below)
-- Platform: macOS, Windows, or Linux with a suitable toolchain (Xcode, MSVC, etc.)
+- **macOS / Windows:** Download the latest release from the [Releases](https://github.com/your-org/sliceshuffle/releases) page. Each release includes:
+  - **SliceShuffle.vst3** — install this in your DAW’s VST3 folder.
+  - **Standalone app** — run SliceShuffle without a DAW.
 
-## One-time setup
+### Installing the plugin
 
-### 1. Clone with JUCE submodule
+- **macOS:** Copy `SliceShuffle.vst3` into `/Library/Audio/Plug-Ins/VST3/` (or `~/Library/Audio/Plug-Ins/VST3/` for your user only).
+- **Windows:** Copy `SliceShuffle.vst3` into your VST3 folder (e.g. `C:\Program Files\Common Files\VST3`).
 
-```bash
-git clone --recurse-submodules https://github.com/your-org/sliceshuffle.git
-cd sliceshuffle
-```
+Your DAW will then list SliceShuffle in its plugin browser (VST3).
 
-If the repo is already cloned without submodules:
+## Using the plugin (or Standalone app)
 
-```bash
-git submodule update --init --recursive
-```
+1. **Load a sample** — Click **Load Sample** and choose a WAV, MP3, M4A, or AIFF file. BPM is detected automatically; you can change it with the BPM slider.
+2. **Adjust settings** — Set **Granularity** (slice size in beats) and **Window** (how many slices are visible and in play).
+3. **Rearrange** — Use **Shuffle** to randomize the order of slices. Select specific slices (click/drag on the waveform) to shuffle only those, or use **Silence** / **Duplicate** on the selection.
+4. **Preview** — Click **Preview** (or press Space) to hear the current arrangement.
+5. **Export** — Click **Export** to save the current window as a WAV file. You can also drag from the waveform view into a DAW or folder to export.
 
-### 2. Add JUCE as submodule (if starting from an empty repo)
+**Reset** restores the slice order to the original.
 
-From the repo root:
+## Using the command line
+
+If you have the CLI build (e.g. from a release or from building the project), you can process files offline:
 
 ```bash
-git init
-git submodule add https://github.com/juce-framework/JUCE.git juce
+SliceShuffleCli input.wav output.wav --bpm 120
 ```
 
-Pin a specific tag (recommended):
+- **Input:** WAV, MP3, or M4A (M4A supported on macOS).
+- **Output:** Always WAV.
+- **Required:** `--bpm` — the BPM used for slicing (e.g. `--bpm 140`).
+
+Example with an MP3:
 
 ```bash
-cd juce
-git checkout 7.0.9   # or latest stable tag
-cd ..
-git add juce
-git commit -m "Pin JUCE to 7.0.9"
+SliceShuffleCli myloop.mp3 shuffled.wav --bpm 128
 ```
 
-## Build (out-of-source)
+## System requirements
 
-From the **project root** (not inside `src/`):
-
-```bash
-cmake -B build && cmake --build build
-```
-
-- **CLI:** `build/src/SliceShuffleCli_artefacts/SliceShuffleCli` (with Make/Ninja; Xcode/VS use `Debug/` or `Release/` under that).
-- **Plugin (VST3):** `build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3`
-- **Standalone app:** `build/src/SliceShufflePlugin_artefacts/Standalone/SliceShuffle.app`
-
-Optional: use a generator explicitly:
-
-```bash
-cmake -G Xcode -B build
-cmake -G "Ninja" -B build
-```
-
-## Run
-
-- **CLI:**  
-  `./build/src/SliceShuffleCli_artefacts/SliceShuffleCli input.wav output.wav --bpm 120`  
-  Input can be WAV, MP3, or M4A (M4A on macOS); output is WAV. Example: `SliceShuffleCli input.mp3 output.wav --bpm 120`
-
-- **Standalone app (macOS):**  
-  `./build/src/SliceShufflePlugin_artefacts/Standalone/SliceShuffle.app/Contents/MacOS/SliceShuffle`
-
-- **Plugin:** Load `SliceShuffle.vst3` in FL Studio (or any VST3 host). Path: `build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3`
-
-  Install to system VST3 folder so your DAW picks it up (macOS example):
-
-  ```bash
-  sudo cp -R build/src/SliceShufflePlugin_artefacts/VST3/SliceShuffle.vst3 /Library/Audio/Plug-Ins/VST3/
-  ```
-
-## GitHub Releases (macOS + Windows)
-
-The repo includes a GitHub Actions workflow (`.github/workflows/build-release.yml`) that builds the plugin and standalone app on **macOS** and **Windows**. To get built zips (VST3 + Standalone) on a release:
-
-1. **Create the release in GitHub first:** Repo → **Releases** → **Draft a new release** → choose or create a tag (e.g. `v0.1.0`) → publish. (This creates the “Source code” zip only.)
-2. **Run the workflow:** **Actions** → **Build release** → **Run workflow** → enter the same tag (e.g. `v0.1.0`) in “Release tag to attach assets to” → **Run workflow**.
-3. When the run finishes (both macOS and Windows jobs green), the **SliceShuffle-macos.zip** and **SliceShuffle-windows.zip** assets will appear on that release.
-
-You can also download the built zips from the workflow run’s **Artifacts** without creating a release.
-
-## Roadmap
-
-1. **CLI:** Implement WAV load → slice by BPM (using `SliceShuffleEngine`) → shuffle → write WAV.
-2. **Plugin:** Use the same DSP in `processBlock` with preloaded buffer; no file I/O on the audio thread. Add **APVTS** and stable parameter IDs from day one for host compatibility.
+- **macOS** 10.14+ (VST3 + Standalone).
+- **Windows** 10 or later (VST3 + Standalone).
+- Any DAW or host that supports **VST3** (e.g. FL Studio, Reaper, Ableton Live, etc.).
 
 ## License
 
-JUCE is GPL/Commercial — ensure your use of this project complies with JUCE’s license and any license you choose to apply to your own code.
+This project uses JUCE. Your use must comply with [JUCE’s license](https://juce.com/legal/juce-8-licence/) and any license applied to this codebase.

@@ -117,10 +117,21 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
   silenceButton_.getProperties().set ("variant", juce::var ("secondary"));
   duplicateButton_.getProperties().set ("variant", juce::var ("secondary"));
   deleteButton_.getProperties().set ("variant", juce::var ("destructive"));
+  deleteButton_.setColour (juce::TextButton::buttonColourId, juce::Colours::red);
   reverseButton_.getProperties().set ("variant", juce::var ("secondary"));
   previewButton_.getProperties().set ("variant", juce::var ("secondary"));
-  previewButton_.setClickingTogglesState (true);
+  previewButton_.setClickingTogglesState(true);
   exportButton_.getProperties().set ("variant", juce::var ("secondary"));
+
+  undoButton_.setTooltip("Undo");
+  redoButton_.setTooltip("Redo");
+  rearrangeButton_.setTooltip("Randomize slice order");
+  reverseButton_.setTooltip("Reverse selected slices");
+  duplicateButton_.setTooltip("Duplicate selected slices");
+  silenceButton_.setTooltip("Mute selected slices");
+  deleteButton_.setTooltip("Delete selected slices");
+  previewButton_.setTooltip("Preview playback");
+  exportButton_.setTooltip("Export rearranged audio");
 
   topBar_.setOnLoadClicked([this]()
   {
@@ -238,39 +249,41 @@ void SliceShufflePluginEditor::resized()
   controlPanelViewport_.setBounds(rightArea);
   controlPanel_.setSize(rightArea.getWidth(), 380);
 
-  const int tertiaryW = sliceshuffle::UiTokens::tertiaryButtonWidth;
-  const int secondaryW = sliceshuffle::UiTokens::secondaryButtonWidth;
-  const int primaryW = secondaryW + sliceshuffle::UiTokens::primaryButtonWidthExtra;
-  const int gap = sliceshuffle::UiTokens::buttonGap;
-  const int groupGap = sliceshuffle::UiTokens::groupGap;
+  const int bw = sliceshuffle::UiTokens::toolbarButtonWidth;
+  const int bh = sliceshuffle::UiTokens::bottomBarRowHeight;
+  const int rowGap = sliceshuffle::UiTokens::bottomBarRowGap;
+  const int buttonSpacing = sliceshuffle::UiTokens::buttonSpacing;
+  const int groupSpacing = sliceshuffle::UiTokens::groupSpacing;
 
-  // Left group: Undo, Redo (tertiary)
-  auto leftGroup = bottomBar.removeFromLeft (tertiaryW + gap + tertiaryW);
-  undoButton_.setBounds (leftGroup.removeFromLeft (tertiaryW).reduced (2));
-  leftGroup.removeFromLeft (gap);
-  redoButton_.setBounds (leftGroup.removeFromLeft (tertiaryW).reduced (2));
+  // Top row (under waveform): Shuffle, Reverse, Duplicate, Silence, Delete
+  auto row1 = bottomBar.removeFromTop(bh);
+  int x1 = row1.getX();
+  const int y1 = row1.getY();
+  const auto place1 = [&](juce::Component& c)
+  {
+    c.setBounds(x1, y1, bw, bh);
+    x1 += bw + buttonSpacing;
+  };
+  place1(rearrangeButton_);
+  place1(reverseButton_);
+  place1(duplicateButton_);
+  place1(silenceButton_);
+  place1(deleteButton_);
 
-  bottomBar.removeFromLeft (groupGap);
+  bottomBar.removeFromTop(rowGap);
 
-  // Middle group: Shuffle (primary), Silence, Duplicate, Delete, Reverse (secondary / destructive)
-  auto midGroup = bottomBar.removeFromLeft (primaryW + gap + secondaryW + gap + secondaryW + gap + secondaryW + gap + secondaryW);
-  rearrangeButton_.setBounds (midGroup.removeFromLeft (primaryW).reduced (2));
-  midGroup.removeFromLeft (gap);
-  silenceButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
-  midGroup.removeFromLeft (gap);
-  duplicateButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
-  midGroup.removeFromLeft (gap);
-  deleteButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
-  midGroup.removeFromLeft (gap);
-  reverseButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
-
-  bottomBar.removeFromLeft (groupGap);
-
-  // Right group: Preview, Export (secondary); Export rightmost
-  auto rightGroup = bottomBar;
-  previewButton_.setBounds (rightGroup.removeFromLeft (secondaryW).reduced (2));
-  rightGroup.removeFromLeft (gap);
-  exportButton_.setBounds (rightGroup.removeFromLeft (secondaryW).reduced (2));
+  // Bottom row: Undo, Redo (narrow), [gap], Preview, Export
+  const int historyW = sliceshuffle::UiTokens::historyButtonWidth;
+  auto row2 = bottomBar;
+  int x2 = row2.getX();
+  const int y2 = row2.getY();
+  undoButton_.setBounds(x2, y2, historyW, bh);
+  x2 += historyW + buttonSpacing;
+  redoButton_.setBounds(x2, y2, historyW, bh);
+  x2 += historyW + groupSpacing - buttonSpacing;
+  previewButton_.setBounds(x2, y2, bw, bh);
+  x2 += bw + buttonSpacing;
+  exportButton_.setBounds(x2, y2, bw, bh);
 
   waveformView_.setBounds(r);
 }
@@ -282,9 +295,15 @@ void SliceShufflePluginEditor::timerCallback()
   waveformOverview_.repaint();
   waveformView_.refresh();
   previewButton_.setButtonText(processorRef.isPreviewActive() ? "Stop" : "Preview");
-  previewButton_.setToggleState (processorRef.isPreviewActive(), juce::dontSendNotification);
+  previewButton_.setToggleState(processorRef.isPreviewActive(), juce::dontSendNotification);
   undoButton_.setEnabled(processorRef.canUndo());
   redoButton_.setEnabled(processorRef.canRedo());
+
+  const bool hasSelection = !waveformView_.getSelectedSliceIndices().empty();
+  silenceButton_.setEnabled(hasSelection);
+  deleteButton_.setEnabled(hasSelection);
+  duplicateButton_.setEnabled(hasSelection);
+  reverseButton_.setEnabled(hasSelection);
 
   if (regenerateScheduledAt_ > 0 && juce::Time::getMillisecondCounter() >= regenerateScheduledAt_)
   {

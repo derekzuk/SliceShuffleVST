@@ -12,14 +12,23 @@ struct UiTokens
   static constexpr int   buttonPaddingV = 6;
   static constexpr float disabledOpacity = 0.5f;
 
-  // Bottom action row layout
-  static constexpr int bottomBarHeight = 28;
-  static constexpr int buttonHeight = 24;
-  static constexpr int buttonGap = 6;       // intra-group
-  static constexpr int groupGap = 12;      // between groups
-  static constexpr int tertiaryButtonWidth = 56;   // Undo/Redo
-  static constexpr int secondaryButtonWidth = 72;
-  static constexpr int primaryButtonWidthExtra = 14; // +width vs secondary (e.g. 86 total)
+  // Bottom action row layout (two rows: edit row, then undo/redo/preview/export row)
+  static constexpr int bottomBarRowHeight = 34;
+  static constexpr int bottomBarRowGap = 10;
+  static constexpr int bottomBarHeight = bottomBarRowHeight * 2 + bottomBarRowGap;
+  static constexpr int buttonHeight = 34;
+  static constexpr int buttonSpacing = 8;   // between buttons in same group
+  static constexpr int groupSpacing = 24;   // between groups
+  static constexpr int buttonGap = buttonSpacing;   // alias for compatibility
+  static constexpr int groupGap = groupSpacing;
+  /** Uniform width for main toolbar buttons. */
+  static constexpr int toolbarButtonWidth = 90;
+  /** Narrower width for Undo/Redo in bottom row. */
+  static constexpr int historyButtonWidth = 56;
+  static constexpr int toolbarButtonHeight = 34;
+  static constexpr int tertiaryButtonWidth = 56;   // legacy
+  static constexpr int secondaryButtonWidth = 72;  // legacy
+  static constexpr int primaryButtonWidthExtra = 14;
 
   // Focus ring (accessibility)
   static constexpr float focusRingThickness = 2.0f;

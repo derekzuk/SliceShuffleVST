@@ -101,7 +101,7 @@ void WaveformView::paint(juce::Graphics& g)
 
   // Build segments: when shortened (after deletes) use logical window = exactly Window Size slots.
   const size_t nPos = state->playbackOrder.size();
-  const bool useLogicalWindow = (nPos > 0 && nPos < state->slices.size());
+  const bool useLogicalWindow = (nPos > 0 && nPos != state->slices.size());
   std::vector<WindowSegment> segments;
   if (useLogicalWindow)
   {
@@ -181,7 +181,7 @@ int WaveformView::sliceIndexAt(float x) const
   const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
   std::vector<WindowSegment> segments;
   const size_t nPos = state->playbackOrder.size();
-  if (nPos > 0 && nPos < state->slices.size())
+  if (nPos > 0 && nPos != state->slices.size())
   {
     const auto [startLogical, endLogical] = processor_.getWindowLogicalPositionRange(*state);
     segments = buildWindowSegmentsFromLogicalRange(*state, startLogical, endLogical);
@@ -226,7 +226,7 @@ std::unordered_set<size_t> WaveformView::sliceIndicesInXRange(float x0, float x1
   const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
   std::vector<WindowSegment> segments;
   const size_t nPos = state->playbackOrder.size();
-  if (nPos > 0 && nPos < state->slices.size())
+  if (nPos > 0 && nPos != state->slices.size())
   {
     const auto [startLogical, endLogical] = processor_.getWindowLogicalPositionRange(*state);
     segments = buildWindowSegmentsFromLogicalRange(*state, startLogical, endLogical);

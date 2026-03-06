@@ -615,11 +615,11 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
     return;
   }
 
-  // No selection: shuffle within current window. When arrangement is shortened (after deletes),
-  // window is in logical space; otherwise use physical slice window.
+  // No selection: shuffle within current window. When arrangement length != physical slice count
+  // (after deletes or duplicates), use logical window so we only shuffle the visible positions.
   std::vector<size_t> logicalPositions;
   logicalPositions.reserve(numPositions);
-  if (numPositions < totalSlices)
+  if (numPositions != totalSlices)
   {
     const auto [startLogical, endLogical] = getWindowLogicalPositionRange(*state);
     for (size_t logical = startLogical; logical <= endLogical && logical < numPositions; ++logical)
@@ -750,36 +750,15 @@ void SliceShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_s
   if (n == 0 || state->slices.empty())
     return;
 
-  // Limit duplication to the current window so we push slices off the right side of the window,
-  // not the whole sequence.
-  const auto [windowLeft, windowRight] = getWindowLogicalPositionRange(*state);
-  if (windowRight < windowLeft || windowLeft >= n)
-    return;
-  const size_t wLeft = windowLeft;
-  const size_t wRight = std::min(windowRight, n - 1);
-  const size_t windowSize = (wRight >= wLeft) ? (wRight - wLeft + 1) : 0;
-  if (windowSize == 0)
-    return;
-
-  // Collect selected logical positions within [wLeft, wRight].
-  std::vector<size_t> positions;
-  positions.reserve(selectedPositions.size());
-  for (size_t i = wLeft; i <= wRight; ++i)
-  {
-    if (selectedPositions.count(i) != 0)
-      positions.push_back(i);
-  }
+  std::vector<size_t> positions(selectedPositions.begin(), selectedPositions.end());
+  std::sort(positions.begin(), positions.end());
+  positions.erase(std::remove_if(positions.begin(), positions.end(), [n](size_t p) { return p >= n; }), positions.end());
   if (positions.empty())
     return;
 
-  std::sort(positions.begin(), positions.end());
-  positions.erase(std::unique(positions.begin(), positions.end()), positions.end());
-
   const size_t rightmost = positions.back();
-  if (rightmost > wRight)
-    return;
 
-  // Physical indices to duplicate, in the order of the logical positions.
+  // Physical indices to duplicate (one copy of each selected slice, in order).
   std::vector<size_t> dupPhys;
   dupPhys.reserve(positions.size());
   for (size_t p : positions)
@@ -791,51 +770,34 @@ void SliceShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_s
   if (dupPhys.empty())
     return;
 
-  const size_t m = dupPhys.size();
+  const size_t dupCount = dupPhys.size();
 
-  // Build new playback order, but only modify the current window segment [wLeft, wRight].
-  std::vector<size_t> newOrder = state->playbackOrder;
-
-  // Within the window, we keep the same number of positions (windowSize).
-  // Layout inside window:
-  //  [ wLeft .. rightmost ]  +  [duplicates]  +  [remaining tail up to window end]
-  const size_t prefixLen = (rightmost >= wLeft) ? (rightmost - wLeft + 1) : 0;
-  if (prefixLen > windowSize)
-    return;
-
-  const size_t maxDupInsideWindow = (windowSize > prefixLen) ? (windowSize - prefixLen) : 0;
-  const size_t dupCount = std::min(m, maxDupInsideWindow);
-  const size_t suffixLen = windowSize - prefixLen - dupCount;
-
-  std::vector<size_t> newWindow;
-  newWindow.reserve(windowSize);
-
-  // 1) Prefix: existing slices from window start up to and including rightmost selected.
-  for (size_t i = 0; i < prefixLen; ++i)
-    newWindow.push_back(state->playbackOrder[wLeft + i]);
-
-  // 2) Duplicates: physical slices of selected positions.
+  // Insert one copy of the selection immediately after the rightmost selected; shift everything
+  // to the right by dupCount (arrangement grows).
+  std::vector<size_t> newOrder;
+  newOrder.reserve(n + dupCount);
+  for (size_t i = 0; i <= rightmost; ++i)
+    newOrder.push_back(state->playbackOrder[i]);
   for (size_t i = 0; i < dupCount; ++i)
-    newWindow.push_back(dupPhys[i]);
+    newOrder.push_back(dupPhys[i]);
+  for (size_t i = rightmost + 1; i < n; ++i)
+    newOrder.push_back(state->playbackOrder[i]);
 
-  // 3) Suffix: keep as much of the original tail inside the window as fits.
-  const size_t tailStart = rightmost + 1;
-  for (size_t i = 0; i < suffixLen && (tailStart + i) <= wRight; ++i)
-    newWindow.push_back(state->playbackOrder[tailStart + i]);
+  // Mute flags: keep for positions <= rightmost; shift by dupCount for positions > rightmost.
+  // New slots (rightmost+1 .. rightmost+dupCount) are not muted.
+  std::unordered_set<size_t> newMuted;
+  for (size_t p : state->mutedLogicalPositions)
+  {
+    if (p <= rightmost)
+      newMuted.insert(p);
+    else
+      newMuted.insert(p + dupCount);
+  }
 
-  if (newWindow.size() != windowSize)
-    return;
-
-  // Write back modified window into newOrder.
-  for (size_t i = 0; i < windowSize; ++i)
-    newOrder[wLeft + i] = newWindow[i];
-
-  if (newOrder == state->playbackOrder)
-    return;
-
-  pushUndoEntry(state->playbackOrder, selectedPositions);
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(newOrder);
+  newState->mutedLogicalPositions = std::move(newMuted);
   applyNewPreparedState(std::move(newState));
 }
 
@@ -1542,9 +1504,9 @@ std::pair<size_t, size_t> SliceShufflePluginProcessor::getWindowLogicalPositionR
       static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
   const size_t windowSlices = static_cast<size_t>(juce::jlimit(4, 64, (windowParam + 1) & ~1));
 
-  // When arrangement has been shortened (after deletes), show exactly windowSlices logical
-  // positions so the visible slice count matches the Window Size slider.
-  if (n < state.slices.size())
+  // When arrangement length differs from physical slice count (after deletes or duplicates),
+  // show exactly windowSlices logical positions so the visible slice count matches the slider.
+  if (n != state.slices.size())
   {
     const size_t count = juce::jmin(windowSlices, n);
     const size_t maxStart = (n > count) ? (n - count) : 0;

@@ -131,9 +131,12 @@ void SliceShuffleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButto
                     juce::Justification::centred, 2);
 }
 
-juce::Font SliceShuffleLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
+juce::Font SliceShuffleLookAndFeel::getTextButtonFont (juce::TextButton& button, int buttonHeight)
 {
-  const float size = juce::jmin (14.0f, (float) buttonHeight * 0.55f);
+  const bool iconButton = button.getProperties().getWithDefault ("iconButton", juce::var (false));
+  const float scale = iconButton ? 0.75f : 0.55f;
+  const float cap = iconButton ? 18.0f : 14.0f;
+  const float size = juce::jmin (cap, (float) buttonHeight * scale);
   return withDefaultMetrics (juce::FontOptions (size));
 }
 

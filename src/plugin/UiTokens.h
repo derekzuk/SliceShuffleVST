@@ -24,7 +24,7 @@ struct UiTokens
   /** Uniform width for main toolbar buttons. */
   static constexpr int toolbarButtonWidth = 90;
   /** Narrower width for Undo/Redo in bottom row. */
-  static constexpr int historyButtonWidth = 56;
+  static constexpr int historyButtonWidth = 44;
   static constexpr int toolbarButtonHeight = 34;
   static constexpr int tertiaryButtonWidth = 56;   // legacy
   static constexpr int secondaryButtonWidth = 72;  // legacy

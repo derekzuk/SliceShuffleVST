@@ -3,6 +3,9 @@
 
 namespace {
 const juce::Identifier kSliceShuffleExportDragType("sliceshuffle-export");
+// Unicode: U+21BA = undo (↺), U+21BB = redo (↻)
+const juce::String kUndoSymbol = juce::String::charToString(static_cast<juce::juce_wchar>(0x21BA));
+const juce::String kRedoSymbol = juce::String::charToString(static_cast<juce::juce_wchar>(0x21BB));
 } // namespace
 
 SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& p)
@@ -18,7 +21,7 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
   controlPanelViewport_.setViewedComponent(&controlPanel_, false);
   controlPanelViewport_.setScrollBarsShown(false, false);
   addAndMakeVisible(controlPanelViewport_);
-  undoButton_.setButtonText("Undo");
+  undoButton_.setButtonText(kUndoSymbol);
   addAndMakeVisible(undoButton_);
   undoButton_.onClick = [this]()
   {
@@ -26,7 +29,7 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
     if (auto sel = processorRef.takePendingRestoreSelection())
       waveformView_.setSelectedSliceIndices(std::move(*sel));
   };
-  redoButton_.setButtonText("Redo");
+  redoButton_.setButtonText(kRedoSymbol);
   addAndMakeVisible(redoButton_);
   redoButton_.onClick = [this]()
   {
@@ -112,7 +115,9 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
 
   setLookAndFeel (&sliceShuffleLf_);
   undoButton_.getProperties().set ("variant", juce::var ("tertiary"));
+  undoButton_.getProperties().set ("iconButton", juce::var (true));
   redoButton_.getProperties().set ("variant", juce::var ("tertiary"));
+  redoButton_.getProperties().set ("iconButton", juce::var (true));
   rearrangeButton_.getProperties().set ("variant", juce::var ("primary"));
   silenceButton_.getProperties().set ("variant", juce::var ("secondary"));
   duplicateButton_.getProperties().set ("variant", juce::var ("secondary"));
@@ -272,18 +277,16 @@ void SliceShufflePluginEditor::resized()
 
   bottomBar.removeFromTop(rowGap);
 
-  // Bottom row: Undo, Redo (narrow), [gap], Preview, Export
+  // Bottom row: Undo, Redo (narrow) | Preview, Export (right-justified)
   const int historyW = sliceshuffle::UiTokens::historyButtonWidth;
   auto row2 = bottomBar;
-  int x2 = row2.getX();
   const int y2 = row2.getY();
-  undoButton_.setBounds(x2, y2, historyW, bh);
-  x2 += historyW + buttonSpacing;
-  redoButton_.setBounds(x2, y2, historyW, bh);
-  x2 += historyW + groupSpacing - buttonSpacing;
-  previewButton_.setBounds(x2, y2, bw, bh);
-  x2 += bw + buttonSpacing;
-  exportButton_.setBounds(x2, y2, bw, bh);
+  undoButton_.setBounds(row2.getX(), y2, historyW, bh);
+  redoButton_.setBounds(row2.getX() + historyW + buttonSpacing, y2, historyW, bh);
+  int xRight = row2.getRight();
+  exportButton_.setBounds(xRight - bw, y2, bw, bh);
+  xRight -= bw + buttonSpacing;
+  previewButton_.setBounds(xRight - bw, y2, bw, bh);
 
   waveformView_.setBounds(r);
 }

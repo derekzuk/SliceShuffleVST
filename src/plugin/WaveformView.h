@@ -48,6 +48,10 @@ private:
   std::vector<WindowSegment> buildWindowSegments(const PreparedState& state,
                                                 juce::int64 rangeStart,
                                                 juce::int64 rangeEnd) const;
+  /** Build segments for logical positions [startLogical, endLogical] (inclusive). Used when window is in logical space (after deletes). */
+  std::vector<WindowSegment> buildWindowSegmentsFromLogicalRange(const PreparedState& state,
+                                                                size_t startLogical,
+                                                                size_t endLogical) const;
 
   static constexpr int kDragStartThresholdPx = 5;
 

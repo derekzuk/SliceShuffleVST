@@ -60,6 +60,17 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
     if (!sel.empty())
       processorRef.duplicateSelectedSlices(sel);
   };
+  deleteButton_.setButtonText("Delete");
+  addAndMakeVisible(deleteButton_);
+  deleteButton_.onClick = [this]()
+  {
+    const auto& sel = waveformView_.getSelectedSliceIndices();
+    if (!sel.empty())
+    {
+      processorRef.removeSelectedSlices(sel);
+      waveformView_.clearSelection();
+    }
+  };
   previewButton_.setButtonText("Preview");
   addAndMakeVisible(previewButton_);
   previewButton_.onClick = [this]()
@@ -97,6 +108,7 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
   rearrangeButton_.getProperties().set ("variant", juce::var ("primary"));
   silenceButton_.getProperties().set ("variant", juce::var ("secondary"));
   duplicateButton_.getProperties().set ("variant", juce::var ("secondary"));
+  deleteButton_.getProperties().set ("variant", juce::var ("destructive"));
   previewButton_.getProperties().set ("variant", juce::var ("secondary"));
   previewButton_.setClickingTogglesState (true);
   exportButton_.getProperties().set ("variant", juce::var ("secondary"));
@@ -148,6 +160,16 @@ void SliceShufflePluginEditor::paint(juce::Graphics& g)
 
 bool SliceShufflePluginEditor::keyPressed(const juce::KeyPress& key)
 {
+  if (key.getKeyCode() == juce::KeyPress::deleteKey || key.getKeyCode() == juce::KeyPress::backspaceKey)
+  {
+    const auto& sel = waveformView_.getSelectedSliceIndices();
+    if (!sel.empty())
+    {
+      processorRef.removeSelectedSlices(sel);
+      waveformView_.clearSelection();
+      return true;
+    }
+  }
   if (key == juce::KeyPress::spaceKey)
   {
     if (processorRef.isPreviewActive())
@@ -221,13 +243,15 @@ void SliceShufflePluginEditor::resized()
 
   bottomBar.removeFromLeft (groupGap);
 
-  // Middle group: Shuffle (primary), Silence, Duplicate (secondary)
-  auto midGroup = bottomBar.removeFromLeft (primaryW + gap + secondaryW + gap + secondaryW);
+  // Middle group: Shuffle (primary), Silence, Duplicate, Delete (secondary / destructive)
+  auto midGroup = bottomBar.removeFromLeft (primaryW + gap + secondaryW + gap + secondaryW + gap + secondaryW);
   rearrangeButton_.setBounds (midGroup.removeFromLeft (primaryW).reduced (2));
   midGroup.removeFromLeft (gap);
   silenceButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
   midGroup.removeFromLeft (gap);
   duplicateButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
+  midGroup.removeFromLeft (gap);
+  deleteButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
 
   bottomBar.removeFromLeft (groupGap);
 

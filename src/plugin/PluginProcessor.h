@@ -102,6 +102,10 @@ public:
    *  kept constant; duplicates overwrite slices at the far right of the sequence if needed. */
   void duplicateSelectedSlices(const std::unordered_set<size_t>& selectedPositions);
 
+  /** Remove selected logical positions from the arrangement. Slices to the right shift left.
+   *  playbackOrder shrinks; muted positions are remapped to the new indices. */
+  void removeSelectedSlices(const std::unordered_set<size_t>& selectedPositions);
+
   /** Play the loaded sample from the start for 5 seconds (from UI). */
   void startPreview();
   /** Stop preview playback (from UI). */

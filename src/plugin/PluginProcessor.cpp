@@ -263,8 +263,12 @@ void SliceShufflePluginProcessor::undo(const std::unordered_set<size_t>& current
     std::lock_guard lock(preparedStateMutex_);
     state = preparedState_;
   }
-  if (!state || state->playbackOrder.size() != entry.order.size())
+  if (!state || entry.order.empty())
     return;
+  // Allow restoring order of different length (e.g. undo after delete).
+  for (size_t idx : entry.order)
+    if (idx >= state->slices.size())
+      return;
   redo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedLogicalPositions});
 
   if (entry.selectionToRestore)
@@ -291,8 +295,11 @@ void SliceShufflePluginProcessor::redo(const std::unordered_set<size_t>& current
     std::lock_guard lock(preparedStateMutex_);
     state = preparedState_;
   }
-  if (!state || state->playbackOrder.size() != entry.order.size())
+  if (!state || entry.order.empty())
     return;
+  for (size_t idx : entry.order)
+    if (idx >= state->slices.size())
+      return;
   undo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedLogicalPositions});
 
   if (entry.selectionToRestore)
@@ -376,18 +383,29 @@ void SliceShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer
   // If we are restoring from preset/state, we may have a pending playback order.
   // When forcing identity (e.g. after granularity/BPM change), we intentionally
   // ignore any pending order and reset arrangement.
-  if (!forceIdentityOrder &&
-      !pendingPlaybackOrder_.empty() &&
-      pendingPlaybackOrder_.size() == state->slices.size())
+  // Allow pending order of same or shorter length (e.g. after delete).
+  if (!forceIdentityOrder && !pendingPlaybackOrder_.empty() &&
+      pendingPlaybackOrder_.size() <= state->slices.size())
   {
-    state->playbackOrder = pendingPlaybackOrder_;
+    bool valid = true;
+    for (size_t idx : pendingPlaybackOrder_)
+      if (idx >= state->slices.size())
+      {
+        valid = false;
+        break;
+      }
+    if (valid)
+    {
+      state->playbackOrder = pendingPlaybackOrder_;
+      const size_t n = state->playbackOrder.size();
+      for (size_t pos : pendingMutedLogicalPositions_)
+        if (pos < n)
+          state->mutedLogicalPositions.insert(pos);
+    }
     pendingPlaybackOrder_.clear();
-    // Restore muted positions; only keep indices that are in range for this arrangement
-    const size_t n = state->playbackOrder.size();
-    for (size_t pos : pendingMutedLogicalPositions_)
-      if (pos < n)
-        state->mutedLogicalPositions.insert(pos);
     pendingMutedLogicalPositions_.clear();
+    if (!valid)
+      state->playbackOrder = std::move(order);
   }
   else
   {
@@ -536,7 +554,8 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
     return;
 
   const size_t totalSlices = state->slices.size();
-  if (state->playbackOrder.size() != totalSlices)
+  const size_t numPositions = state->playbackOrder.size();
+  if (numPositions == 0)
     return;
 
   if (!selectedPositions.empty())
@@ -544,9 +563,9 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
     // Only shuffle the selected logical positions; leave others unchanged.
     std::vector<size_t> positions(selectedPositions.begin(), selectedPositions.end());
     std::sort(positions.begin(), positions.end());
-    // Remove any out-of-range
+    // Remove any out-of-range (use numPositions so shuffle works after delete too).
     positions.erase(std::remove_if(positions.begin(), positions.end(),
-                                   [totalSlices](size_t p) { return p >= totalSlices; }),
+                                   [numPositions](size_t p) { return p >= numPositions; }),
                     positions.end());
     if (positions.size() <= 1)
       return;
@@ -596,19 +615,27 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
     return;
   }
 
-  // No selection: shuffle within current window (existing behaviour)
-  const auto [physStart, physEnd] = getWindowSliceRange(*state);
-  if (physEnd <= physStart)
-    return;
-
-  // Collect logical positions whose current physical slice is in that window.
+  // No selection: shuffle within current window. When arrangement is shortened (after deletes),
+  // window is in logical space; otherwise use physical slice window.
   std::vector<size_t> logicalPositions;
-  logicalPositions.reserve(state->playbackOrder.size());
-  for (size_t logical = 0; logical < totalSlices; ++logical)
+  logicalPositions.reserve(numPositions);
+  if (numPositions < totalSlices)
   {
-    const size_t phys = state->playbackOrder[logical];
-    if (phys >= physStart && phys < physEnd)
+    const auto [startLogical, endLogical] = getWindowLogicalPositionRange(*state);
+    for (size_t logical = startLogical; logical <= endLogical && logical < numPositions; ++logical)
       logicalPositions.push_back(logical);
+  }
+  else
+  {
+    const auto [physStart, physEnd] = getWindowSliceRange(*state);
+    if (physEnd <= physStart)
+      return;
+    for (size_t logical = 0; logical < numPositions; ++logical)
+    {
+      const size_t phys = state->playbackOrder[logical];
+      if (phys >= physStart && phys < physEnd)
+        logicalPositions.push_back(logical);
+    }
   }
 
   if (logicalPositions.size() <= 1)
@@ -810,6 +837,94 @@ void SliceShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_s
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(newOrder);
   applyNewPreparedState(std::move(newState));
+}
+
+void SliceShufflePluginProcessor::removeSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
+{
+  if (selectedPositions.empty())
+    return;
+
+  std::shared_ptr<const PreparedState> state;
+  {
+    std::lock_guard lock(preparedStateMutex_);
+    state = preparedState_;
+  }
+  if (!state)
+    return;
+
+  const size_t n = state->playbackOrder.size();
+  if (n == 0)
+    return;
+
+  // Build new playback order: keep only logical positions not in selectedPositions (shift left).
+  std::vector<size_t> newOrder;
+  newOrder.reserve(n);
+  std::unordered_set<size_t> newMuted;
+  for (size_t pos = 0; pos < n; ++pos)
+  {
+    if (selectedPositions.count(pos) != 0)
+      continue;
+    const size_t newPos = newOrder.size();
+    newOrder.push_back(state->playbackOrder[pos]);
+    if (state->mutedLogicalPositions.count(pos) != 0)
+      newMuted.insert(newPos);
+  }
+
+  if (newOrder.size() == n)
+    return; // nothing removed
+
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->playbackOrder = std::move(newOrder);
+  newState->mutedLogicalPositions = std::move(newMuted);
+  applyNewPreparedState(std::move(newState));
+
+  // If the current window (source range) no longer overlaps any remaining slice, adjust the
+  // window position so the bottom waveform shows the start of the arrangement (so the user
+  // can see and select slices again).
+  std::shared_ptr<const PreparedState> applied = getPreparedState();
+  if (!applied || applied->playbackOrder.empty() || applied->slices.empty())
+    return;
+  const size_t numSlices = applied->slices.size();
+  const int windowParam = juce::jlimit(
+      4, 64,
+      static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
+  const size_t windowSlices = static_cast<size_t>(juce::jlimit(4, 64, (windowParam + 1) & ~1));
+  if (windowSlices >= numSlices)
+    return;
+  const juce::int64 totalSamples = applied->lengthInSamples;
+  auto [windowStart, windowEnd] = getWindowRangeSnappedToSlices(*applied);
+  windowStart = juce::jlimit(juce::int64(0), totalSamples, windowStart);
+  windowEnd = juce::jlimit(juce::int64(0), totalSamples, windowEnd);
+  bool anyInWindow = false;
+  for (size_t logical = 0; logical < applied->playbackOrder.size(); ++logical)
+  {
+    const size_t phys = applied->playbackOrder[logical];
+    if (phys >= numSlices)
+      continue;
+    const auto& sl = applied->slices[phys];
+    const juce::int64 slStart = static_cast<juce::int64>(sl.startSample);
+    const juce::int64 slEnd = slStart + static_cast<juce::int64>(sl.lengthSamples);
+    if (slEnd > windowStart && slStart < windowEnd)
+    {
+      anyInWindow = true;
+      break;
+    }
+  }
+  if (!anyInWindow)
+  {
+    const size_t firstPhys = applied->playbackOrder[0];
+    if (firstPhys < numSlices)
+    {
+      const size_t maxStart = numSlices - windowSlices;
+      const size_t startIdx = std::min(firstPhys, maxStart);
+      if (auto* param = apvts.getParameter(kWindowPositionId))
+      {
+        const float posNorm = (maxStart > 0) ? (static_cast<float>(startIdx) / static_cast<float>(maxStart)) : 0.0f;
+        param->setValueNotifyingHost(posNorm);
+      }
+    }
+  }
 }
 
 std::vector<size_t> SliceShufflePluginProcessor::moveSelectedSlicesInOrder(
@@ -1418,13 +1533,33 @@ std::pair<size_t, size_t> SliceShufflePluginProcessor::getWindowSliceRange(const
 std::pair<size_t, size_t> SliceShufflePluginProcessor::getWindowLogicalPositionRange(
     const PreparedState& state) const
 {
-  auto [windowStart, windowEnd] = getWindowRangeSnappedToSlices(state);
-  if (windowEnd <= windowStart)
-    return {0, state.playbackOrder.size() > 0 ? state.playbackOrder.size() - 1 : 0};
-
   const size_t n = state.playbackOrder.size();
   if (state.slices.empty() || n == 0)
     return {0, 0};
+
+  const int windowParam = juce::jlimit(
+      4, 64,
+      static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
+  const size_t windowSlices = static_cast<size_t>(juce::jlimit(4, 64, (windowParam + 1) & ~1));
+
+  // When arrangement has been shortened (after deletes), show exactly windowSlices logical
+  // positions so the visible slice count matches the Window Size slider.
+  if (n < state.slices.size())
+  {
+    const size_t count = juce::jmin(windowSlices, n);
+    const size_t maxStart = (n > count) ? (n - count) : 0;
+    const float posNorm = apvts.getRawParameterValue(kWindowPositionId)->load();
+    const size_t startLogical = std::min(
+        maxStart,
+        static_cast<size_t>(std::round(static_cast<double>(posNorm) * static_cast<double>(maxStart + 1))));
+    const size_t endLogical = startLogical + (count > 0 ? count - 1 : 0);
+    return {startLogical, endLogical};
+  }
+
+  // Full arrangement: window is in source (physical) space; find logical positions that overlap.
+  auto [windowStart, windowEnd] = getWindowRangeSnappedToSlices(state);
+  if (windowEnd <= windowStart)
+    return {0, n > 0 ? n - 1 : 0};
 
   juce::int64 cumStart = 0;
   size_t minLogical = n;
@@ -1453,14 +1588,15 @@ void SliceShufflePluginProcessor::renderWindowToBuffer(const PreparedState& stat
                                                  juce::AudioBuffer<float>& out) const
 {
   const size_t totalSlices = state.slices.size();
-  if (state.playbackOrder.size() != totalSlices)
+  const size_t numPositions = state.playbackOrder.size();
+  if (numPositions == 0)
   {
     out.setSize(0, 0);
     return;
   }
 
   const auto [logicalStart, logicalEnd] = getWindowLogicalPositionRange(state);
-  if (logicalEnd < logicalStart || logicalStart >= totalSlices)
+  if (logicalEnd < logicalStart || logicalStart >= numPositions)
   {
     out.setSize(0, 0);
     return;
@@ -1471,8 +1607,8 @@ void SliceShufflePluginProcessor::renderWindowToBuffer(const PreparedState& stat
 
   // First pass: logical positions that belong to the current window.
   std::vector<size_t> logicalPositions;
-  logicalPositions.reserve(totalSlices);
-  for (size_t logical = logicalStart; logical <= logicalEnd && logical < totalSlices; ++logical)
+  logicalPositions.reserve(numPositions);
+  for (size_t logical = logicalStart; logical <= logicalEnd && logical < numPositions; ++logical)
   {
     const size_t srcIdx = state.playbackOrder[logical];
     logicalPositions.push_back(logical);
@@ -1541,7 +1677,8 @@ void SliceShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState&
     return;
   }
   const size_t totalSlices = state.slices.size();
-  if (state.playbackOrder.size() != totalSlices)
+  const size_t numPositions = state.playbackOrder.size();
+  if (numPositions == 0)
   {
     out.setSize(0, 0);
     return;
@@ -1558,7 +1695,7 @@ void SliceShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState&
 
   // First pass: compute output length (sum of overlapping portions in playback order)
   size_t outSamples = 0;
-  for (size_t logical = 0; logical < totalSlices; ++logical)
+  for (size_t logical = 0; logical < numPositions; ++logical)
   {
     const size_t srcIdx = state.playbackOrder[logical];
     if (srcIdx >= totalSlices)
@@ -1582,7 +1719,7 @@ void SliceShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState&
   out.clear();
 
   size_t writePos = 0;
-  for (size_t logical = 0; logical < totalSlices; ++logical)
+  for (size_t logical = 0; logical < numPositions; ++logical)
   {
     const size_t srcIdx = state.playbackOrder[logical];
     if (srcIdx >= totalSlices)
@@ -1602,9 +1739,9 @@ void SliceShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState&
     const int fadeSamples = fadeSamplesForSlice(state.sampleRate, sliceLen);
     // Only apply fades at boundaries that are discontinuous in the source (same as renderWindowToBuffer).
     const size_t prevSrcIdx = (logical > 0) ? state.playbackOrder[logical - 1] : totalSlices;
-    const size_t nextSrcIdx = (logical + 1 < totalSlices) ? state.playbackOrder[logical + 1] : totalSlices;
+    const size_t nextSrcIdx = (logical + 1 < numPositions) ? state.playbackOrder[logical + 1] : totalSlices;
     const bool continuousWithPrev = (logical > 0 && prevSrcIdx + 1 == srcIdx);
-    const bool continuousWithNext = (logical + 1 < totalSlices && nextSrcIdx == srcIdx + 1);
+    const bool continuousWithNext = (logical + 1 < numPositions && nextSrcIdx == srcIdx + 1);
     const bool atSliceStart = (offsetInSliceStart == 0);
     const bool atSliceEnd = (offsetInSliceStart + static_cast<size_t>(len) == sliceLen);
     const bool applyFadeInAtStart = atSliceStart && !continuousWithPrev;

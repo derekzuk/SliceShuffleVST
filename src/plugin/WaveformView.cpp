@@ -99,48 +99,51 @@ void WaveformView::paint(juce::Graphics& g)
     g.fillPath(p);
   }
 
-  // Selected slices: reddish highlight (by logical position in playback order).
-  if (!state->slices.empty() && rangeLength > 0)
+  // Build segments: when shortened (after deletes) use logical window = exactly Window Size slots.
+  const size_t nPos = state->playbackOrder.size();
+  const bool useLogicalWindow = (nPos > 0 && nPos < state->slices.size());
+  std::vector<WindowSegment> segments;
+  if (useLogicalWindow)
   {
-    std::vector<WindowSegment> segments = buildWindowSegments(*state, rangeStart, rangeEnd);
-    size_t totalWindowSamples = 0;
-    for (const auto& s : segments)
-      totalWindowSamples += s.length;
-    if (totalWindowSamples > 0)
+    const auto [startLogical, endLogical] = processor_.getWindowLogicalPositionRange(*state);
+    segments = buildWindowSegmentsFromLogicalRange(*state, startLogical, endLogical);
+  }
+  else if (rangeLength > 0)
+    segments = buildWindowSegments(*state, rangeStart, rangeEnd);
+  size_t totalWindowSamples = 0;
+  for (const auto& s : segments)
+    totalWindowSamples += s.length;
+
+  // Selected slices: reddish highlight (by logical position in playback order).
+  if (!state->slices.empty() && totalWindowSamples > 0)
+  {
+    g.setColour(juce::Colour(0x44cc3333)); // semi-transparent red
+    const float totalF = static_cast<float>(totalWindowSamples);
+    for (size_t logicalIdx : selectedSliceIndices_)
     {
-      g.setColour(juce::Colour(0x44cc3333)); // semi-transparent red
-      const float totalF = static_cast<float>(totalWindowSamples);
-      for (size_t logicalIdx : selectedSliceIndices_)
+      for (const auto& s : segments)
       {
-        for (const auto& s : segments)
-        {
-          if (s.logicalIndex != logicalIdx) continue;
-          const float x0 = (static_cast<float>(s.startOffset) / totalF) * width;
-          const float x1 = (static_cast<float>(s.startOffset + s.length) / totalF) * width;
-          g.fillRect(x0, 0.0f, std::max(1.0f, x1 - x0), height);
-          break;
-        }
+        if (s.logicalIndex != logicalIdx) continue;
+        const float x0 = (static_cast<float>(s.startOffset) / totalF) * width;
+        const float x1 = (static_cast<float>(s.startOffset + s.length) / totalF) * width;
+        g.fillRect(x0, 0.0f, std::max(1.0f, x1 - x0), height);
+        break;
       }
     }
   }
 
-  // Slice grid overlay (only slices inside window)
-  g.setColour(juce::Colour(0x88ffffff));
-  for (const auto& slice : state->slices)
+  // Slice grid overlay: use the same segments so lines stay within slice boundaries.
+  if (totalWindowSamples > 0)
   {
-    const juce::int64 sliceStart = static_cast<juce::int64>(slice.startSample);
-    if (sliceStart < rangeStart || sliceStart >= rangeEnd) continue;
-    const float x = (static_cast<float>(sliceStart - rangeStart) / static_cast<float>(rangeLength)) * width;
-    g.drawVerticalLine(static_cast<int>(x), 0.0f, height);
-  }
-  if (!state->slices.empty())
-  {
-    const auto& last = state->slices.back();
-    const juce::int64 edge = static_cast<juce::int64>(last.startSample + last.lengthSamples);
-    if (edge > rangeStart && edge <= rangeEnd)
+    g.setColour(juce::Colour(0x88ffffff));
+    const float totalF = static_cast<float>(totalWindowSamples);
+    g.drawVerticalLine(0, 0.0f, height); // left boundary of first segment
+    for (const auto& s : segments)
     {
-      const float x = (static_cast<float>(edge - rangeStart) / static_cast<float>(rangeLength)) * width;
-      g.drawVerticalLine(static_cast<int>(x), 0.0f, height);
+      const float x = (static_cast<float>(s.startOffset + s.length) / totalF) * width;
+      const int xi = static_cast<int>(x);
+      if (xi > 0 && xi < static_cast<int>(width))
+        g.drawVerticalLine(xi, 0.0f, height);
     }
   }
 
@@ -176,9 +179,15 @@ int WaveformView::sliceIndexAt(float x) const
     rangeEnd = r.second;
   }
   const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
-  if (rangeLength <= 0) return -1;
-
-  std::vector<WindowSegment> segments = buildWindowSegments(*state, rangeStart, rangeEnd);
+  std::vector<WindowSegment> segments;
+  const size_t nPos = state->playbackOrder.size();
+  if (nPos > 0 && nPos < state->slices.size())
+  {
+    const auto [startLogical, endLogical] = processor_.getWindowLogicalPositionRange(*state);
+    segments = buildWindowSegmentsFromLogicalRange(*state, startLogical, endLogical);
+  }
+  else if (rangeLength > 0)
+    segments = buildWindowSegments(*state, rangeStart, rangeEnd);
   if (segments.empty()) return -1;
   size_t totalSamples = 0;
   for (const auto& s : segments)
@@ -215,9 +224,15 @@ std::unordered_set<size_t> WaveformView::sliceIndicesInXRange(float x0, float x1
     rangeEnd = r.second;
   }
   const juce::int64 rangeLength = juce::jmax(juce::int64(0), rangeEnd - rangeStart);
-  if (rangeLength <= 0) return out;
-
-  std::vector<WindowSegment> segments = buildWindowSegments(*state, rangeStart, rangeEnd);
+  std::vector<WindowSegment> segments;
+  const size_t nPos = state->playbackOrder.size();
+  if (nPos > 0 && nPos < state->slices.size())
+  {
+    const auto [startLogical, endLogical] = processor_.getWindowLogicalPositionRange(*state);
+    segments = buildWindowSegmentsFromLogicalRange(*state, startLogical, endLogical);
+  }
+  else if (rangeLength > 0)
+    segments = buildWindowSegments(*state, rangeStart, rangeEnd);
   if (segments.empty()) return out;
   size_t totalSamples = 0;
   for (const auto& s : segments)
@@ -260,6 +275,25 @@ std::vector<WaveformView::WindowSegment> WaveformView::buildWindowSegments(
   return segments;
 }
 
+std::vector<WaveformView::WindowSegment> WaveformView::buildWindowSegmentsFromLogicalRange(
+    const PreparedState& state, size_t startLogical, size_t endLogical) const
+{
+  std::vector<WindowSegment> segments;
+  const size_t n = state.playbackOrder.size();
+  if (n == 0 || state.slices.empty() || startLogical > endLogical || endLogical >= n)
+    return segments;
+  size_t offset = 0;
+  for (size_t logical = startLogical; logical <= endLogical; ++logical)
+  {
+    const size_t phys = state.playbackOrder[logical];
+    if (phys >= state.slices.size()) continue;
+    const size_t len = state.slices[phys].lengthSamples;
+    segments.push_back({logical, offset, len});
+    offset += len;
+  }
+  return segments;
+}
+
 void WaveformView::mouseDown(const juce::MouseEvent& e)
 {
   dragStartPos_ = e.getPosition();
@@ -284,6 +318,16 @@ bool WaveformView::keyPressed(const juce::KeyPress& key)
       processor_.startPreview();
     return true;
   }
+  if (key.getKeyCode() == juce::KeyPress::deleteKey || key.getKeyCode() == juce::KeyPress::backspaceKey)
+  {
+    if (!selectedSliceIndices_.empty())
+    {
+      processor_.removeSelectedSlices(selectedSliceIndices_);
+      clearSelection();
+      return true;
+    }
+    return false;
+  }
   if (selectedSliceIndices_.empty())
     return false;
   // Left / Right: move selected slice(s) in playback order; highlight follows the moved slice
@@ -292,10 +336,11 @@ bool WaveformView::keyPressed(const juce::KeyPress& key)
                                                                       : 0;
   if (direction == 0)
     return false;
-  const size_t numSlices = static_cast<size_t>(processor_.getNumSlices());
+  auto state = processor_.getPreparedState();
+  const size_t numSlices = state ? state->playbackOrder.size() : static_cast<size_t>(processor_.getNumSlices());
   size_t windowLeft = 0;
   size_t windowRight = numSlices > 0 ? numSlices - 1 : 0;
-  if (auto state = processor_.getPreparedState())
+  if (state)
   {
     const auto [wLeft, wRight] = processor_.getWindowLogicalPositionRange(*state);
     windowLeft = wLeft;

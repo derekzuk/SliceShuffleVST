@@ -46,6 +46,7 @@ private:
   juce::TextButton rearrangeButton_;
   juce::TextButton silenceButton_;
   juce::TextButton duplicateButton_;
+  juce::TextButton deleteButton_;
   juce::TextButton previewButton_;
   juce::TextButton exportButton_;
   juce::TextButton undoButton_;

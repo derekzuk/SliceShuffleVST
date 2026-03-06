@@ -71,6 +71,14 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
       waveformView_.clearSelection();
     }
   };
+  reverseButton_.setButtonText("Reverse");
+  addAndMakeVisible(reverseButton_);
+  reverseButton_.onClick = [this]()
+  {
+    const auto& sel = waveformView_.getSelectedSliceIndices();
+    if (!sel.empty())
+      processorRef.reverseSelectedSlices(sel);
+  };
   previewButton_.setButtonText("Preview");
   addAndMakeVisible(previewButton_);
   previewButton_.onClick = [this]()
@@ -109,6 +117,7 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
   silenceButton_.getProperties().set ("variant", juce::var ("secondary"));
   duplicateButton_.getProperties().set ("variant", juce::var ("secondary"));
   deleteButton_.getProperties().set ("variant", juce::var ("destructive"));
+  reverseButton_.getProperties().set ("variant", juce::var ("secondary"));
   previewButton_.getProperties().set ("variant", juce::var ("secondary"));
   previewButton_.setClickingTogglesState (true);
   exportButton_.getProperties().set ("variant", juce::var ("secondary"));
@@ -243,8 +252,8 @@ void SliceShufflePluginEditor::resized()
 
   bottomBar.removeFromLeft (groupGap);
 
-  // Middle group: Shuffle (primary), Silence, Duplicate, Delete (secondary / destructive)
-  auto midGroup = bottomBar.removeFromLeft (primaryW + gap + secondaryW + gap + secondaryW + gap + secondaryW);
+  // Middle group: Shuffle (primary), Silence, Duplicate, Delete, Reverse (secondary / destructive)
+  auto midGroup = bottomBar.removeFromLeft (primaryW + gap + secondaryW + gap + secondaryW + gap + secondaryW + gap + secondaryW);
   rearrangeButton_.setBounds (midGroup.removeFromLeft (primaryW).reduced (2));
   midGroup.removeFromLeft (gap);
   silenceButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
@@ -252,6 +261,8 @@ void SliceShufflePluginEditor::resized()
   duplicateButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
   midGroup.removeFromLeft (gap);
   deleteButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
+  midGroup.removeFromLeft (gap);
+  reverseButton_.setBounds (midGroup.removeFromLeft (secondaryW).reduced (2));
 
   bottomBar.removeFromLeft (groupGap);
 

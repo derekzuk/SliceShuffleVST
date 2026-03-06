@@ -17,6 +17,7 @@ constexpr const char* kStateVersionAttr = "stateVersion";
 constexpr const char* kSamplePathAttr = "samplePath";
 constexpr const char* kPlaybackOrderAttr = "playbackOrder";
 constexpr const char* kMutedPositionsAttr = "mutedPositions";
+constexpr const char* kReversedPositionsAttr = "reversedPositions";
 
 constexpr int kCurrentStateVersion = 1;
 
@@ -236,9 +237,10 @@ void SliceShufflePluginProcessor::applyNewPreparedState(std::shared_ptr<const Pr
 
 void SliceShufflePluginProcessor::pushUndoEntry(std::vector<size_t> currentOrder,
                                              std::optional<std::unordered_set<size_t>> selectionToRestore,
-                                             std::optional<std::unordered_set<size_t>> mutedToRestore)
+                                             std::optional<std::unordered_set<size_t>> mutedToRestore,
+                                             std::optional<std::unordered_set<size_t>> reversedToRestore)
 {
-  undo_.push_back({gen_, std::move(currentOrder), std::move(selectionToRestore), std::move(mutedToRestore)});
+  undo_.push_back({gen_, std::move(currentOrder), std::move(selectionToRestore), std::move(mutedToRestore), std::move(reversedToRestore)});
   redo_.clear();
   while (undo_.size() > kMaxUndoSteps)
     undo_.pop_front();
@@ -269,7 +271,7 @@ void SliceShufflePluginProcessor::undo(const std::unordered_set<size_t>& current
   for (size_t idx : entry.order)
     if (idx >= state->slices.size())
       return;
-  redo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedLogicalPositions});
+  redo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedLogicalPositions, state->reversedLogicalPositions});
 
   if (entry.selectionToRestore)
     pendingRestoreSelection_ = entry.selectionToRestore;
@@ -278,6 +280,8 @@ void SliceShufflePluginProcessor::undo(const std::unordered_set<size_t>& current
   newState->playbackOrder = std::move(entry.order);
   if (entry.mutedToRestore)
     newState->mutedLogicalPositions = *entry.mutedToRestore;
+  if (entry.reversedToRestore)
+    newState->reversedLogicalPositions = *entry.reversedToRestore;
   applyNewPreparedState(std::move(newState));
 }
 
@@ -300,7 +304,7 @@ void SliceShufflePluginProcessor::redo(const std::unordered_set<size_t>& current
   for (size_t idx : entry.order)
     if (idx >= state->slices.size())
       return;
-  undo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedLogicalPositions});
+  undo_.push_back({gen_, state->playbackOrder, currentSelection, state->mutedLogicalPositions, state->reversedLogicalPositions});
 
   if (entry.selectionToRestore)
     pendingRestoreSelection_ = entry.selectionToRestore;
@@ -309,6 +313,8 @@ void SliceShufflePluginProcessor::redo(const std::unordered_set<size_t>& current
   newState->playbackOrder = std::move(entry.order);
   if (entry.mutedToRestore)
     newState->mutedLogicalPositions = *entry.mutedToRestore;
+  if (entry.reversedToRestore)
+    newState->reversedLogicalPositions = *entry.reversedToRestore;
   applyNewPreparedState(std::move(newState));
 }
 
@@ -401,9 +407,13 @@ void SliceShufflePluginProcessor::buildPreparedStateFromBuffer(juce::AudioBuffer
       for (size_t pos : pendingMutedLogicalPositions_)
         if (pos < n)
           state->mutedLogicalPositions.insert(pos);
+      for (size_t pos : pendingReversedLogicalPositions_)
+        if (pos < n)
+          state->reversedLogicalPositions.insert(pos);
     }
     pendingPlaybackOrder_.clear();
     pendingMutedLogicalPositions_.clear();
+    pendingReversedLogicalPositions_.clear();
     if (!valid)
       state->playbackOrder = std::move(order);
   }
@@ -606,7 +616,7 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
     if (newOrder == state->playbackOrder && newMuted == state->mutedLogicalPositions)
       return;
 
-    pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
+    pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions, state->reversedLogicalPositions);
     auto newState = std::make_shared<PreparedState>(*state);
     newState->playbackOrder = std::move(newOrder);
     newState->mutedLogicalPositions = std::move(newMuted);
@@ -684,7 +694,7 @@ void SliceShufflePluginProcessor::rearrangeSample(const std::unordered_set<size_
   if (newOrder == state->playbackOrder && newMuted == state->mutedLogicalPositions)
     return;
 
-  pushUndoEntry(state->playbackOrder, {}, state->mutedLogicalPositions);
+  pushUndoEntry(state->playbackOrder, {}, state->mutedLogicalPositions, state->reversedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(newOrder);
   newState->mutedLogicalPositions = std::move(newMuted);
@@ -727,9 +737,45 @@ void SliceShufflePluginProcessor::silenceSelectedSlices(const std::unordered_set
   if (!anyChange || newMuted == state->mutedLogicalPositions)
     return;
 
-  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions, state->reversedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->mutedLogicalPositions = std::move(newMuted);
+  applyNewPreparedState(std::move(newState));
+}
+
+void SliceShufflePluginProcessor::reverseSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
+{
+  if (selectedPositions.empty())
+    return;
+
+  std::shared_ptr<const PreparedState> state;
+  {
+    std::lock_guard lock(preparedStateMutex_);
+    state = preparedState_;
+  }
+  if (!state)
+    return;
+
+  const size_t totalPositions = state->playbackOrder.size();
+  if (totalPositions == 0)
+    return;
+
+  std::unordered_set<size_t> newReversed = state->reversedLogicalPositions;
+  bool anyChange = false;
+  for (size_t pos : selectedPositions)
+  {
+    if (pos >= totalPositions)
+      continue;
+    if (newReversed.erase(pos) == 0)
+      newReversed.insert(pos);
+    anyChange = true;
+  }
+  if (!anyChange || newReversed == state->reversedLogicalPositions)
+    return;
+
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions, state->reversedLogicalPositions);
+  auto newState = std::make_shared<PreparedState>(*state);
+  newState->reversedLogicalPositions = std::move(newReversed);
   applyNewPreparedState(std::move(newState));
 }
 
@@ -783,8 +829,8 @@ void SliceShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_s
   for (size_t i = rightmost + 1; i < n; ++i)
     newOrder.push_back(state->playbackOrder[i]);
 
-  // Mute flags: keep for positions <= rightmost; shift by dupCount for positions > rightmost.
-  // New slots (rightmost+1 .. rightmost+dupCount) are not muted.
+  // Mute and reversed flags: keep for positions <= rightmost; shift by dupCount for positions > rightmost.
+  // New slots (rightmost+1 .. rightmost+dupCount) are not muted or reversed.
   std::unordered_set<size_t> newMuted;
   for (size_t p : state->mutedLogicalPositions)
   {
@@ -793,12 +839,42 @@ void SliceShufflePluginProcessor::duplicateSelectedSlices(const std::unordered_s
     else
       newMuted.insert(p + dupCount);
   }
+  std::unordered_set<size_t> newReversed;
+  for (size_t p : state->reversedLogicalPositions)
+  {
+    if (p <= rightmost)
+      newReversed.insert(p);
+    else
+      newReversed.insert(p + dupCount);
+  }
 
-  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions, state->reversedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(newOrder);
   newState->mutedLogicalPositions = std::move(newMuted);
+  newState->reversedLogicalPositions = std::move(newReversed);
+  const bool wasFull = (n == state->slices.size());
+  // Capture the logical range currently visible (so we can preserve it after we switch to extended mode).
+  const auto [visibleStart, visibleEnd] = getWindowLogicalPositionRange(*state);
   applyNewPreparedState(std::move(newState));
+  // When we go from full to extended arrangement, the slider starts driving the logical window.
+  // Set it so the same logical range stays in view instead of jumping (e.g. to 0 or right by 1).
+  if (wasFull && (n + dupCount) > state->slices.size())
+  {
+    const size_t nNew = n + dupCount;
+    const int windowParam = juce::jlimit(
+        4, 64,
+        static_cast<int>(std::round(apvts.getRawParameterValue(kWindowBeatsId)->load())));
+    const size_t windowSlices = static_cast<size_t>(juce::jlimit(4, 64, (windowParam + 1) & ~1));
+    const size_t countNew = juce::jmin(windowSlices, nNew);
+    const size_t maxStartNew = (nNew > countNew) ? (nNew - countNew) : 0;
+    const size_t startLogicalNew = std::min(visibleStart, maxStartNew);
+    const float posNorm = (maxStartNew + 1 > 0)
+        ? (static_cast<float>(startLogicalNew) / static_cast<float>(maxStartNew + 1))
+        : 0.0f;
+    if (auto* param = apvts.getParameter(kWindowPositionId))
+      param->setValueNotifyingHost(posNorm);
+  }
 }
 
 void SliceShufflePluginProcessor::removeSelectedSlices(const std::unordered_set<size_t>& selectedPositions)
@@ -822,6 +898,7 @@ void SliceShufflePluginProcessor::removeSelectedSlices(const std::unordered_set<
   std::vector<size_t> newOrder;
   newOrder.reserve(n);
   std::unordered_set<size_t> newMuted;
+  std::unordered_set<size_t> newReversed;
   for (size_t pos = 0; pos < n; ++pos)
   {
     if (selectedPositions.count(pos) != 0)
@@ -830,23 +907,31 @@ void SliceShufflePluginProcessor::removeSelectedSlices(const std::unordered_set<
     newOrder.push_back(state->playbackOrder[pos]);
     if (state->mutedLogicalPositions.count(pos) != 0)
       newMuted.insert(newPos);
+    if (state->reversedLogicalPositions.count(pos) != 0)
+      newReversed.insert(newPos);
   }
 
   if (newOrder.size() == n)
     return; // nothing removed
 
-  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions, state->reversedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(newOrder);
   newState->mutedLogicalPositions = std::move(newMuted);
+  newState->reversedLogicalPositions = std::move(newReversed);
   applyNewPreparedState(std::move(newState));
 
-  // If the current window (source range) no longer overlaps any remaining slice, adjust the
-  // window position so the bottom waveform shows the start of the arrangement (so the user
-  // can see and select slices again).
+  // When arrangement length equals physical slice count, the bottom view uses the source window.
+  // If that window no longer overlaps any remaining slice, adjust the window position so the
+  // user can see slices again. When length != physical count (after duplicate/delete), we use
+  // the logical window and the view already shows the correct remaining slices, so don't move
+  // the slider (that would jump the overview and confuse the user).
   std::shared_ptr<const PreparedState> applied = getPreparedState();
   if (!applied || applied->playbackOrder.empty() || applied->slices.empty())
     return;
+  if (applied->playbackOrder.size() != applied->slices.size())
+    return;
+
   const size_t numSlices = applied->slices.size();
   const int windowParam = juce::jlimit(
       4, 64,
@@ -1008,7 +1093,7 @@ std::vector<size_t> SliceShufflePluginProcessor::moveSelectedSlicesInOrder(
 
   if (order == state->playbackOrder && newMuted == state->mutedLogicalPositions)
     return {};
-  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions);
+  pushUndoEntry(state->playbackOrder, selectedPositions, state->mutedLogicalPositions, state->reversedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = order;
   newState->mutedLogicalPositions = std::move(newMuted);
@@ -1216,6 +1301,8 @@ void SliceShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
       v.active = true;
       v.noteId = msg.getNoteNumber();
       v.gain = vel;
+      v.reversed = !state->reversedLogicalPositions.empty() &&
+                  state->reversedLogicalPositions.count(orderIndex) != 0;
     }
   }
 
@@ -1247,7 +1334,7 @@ void SliceShufflePluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
       else if (v.samplePosition >= sliceLen - static_cast<size_t>(fadeSamples) && sliceLen > static_cast<size_t>(fadeSamples))
         gain = static_cast<float>(sliceLen - v.samplePosition) / static_cast<float>(fadeSamples);
 
-      const size_t srcSample = start + v.samplePosition;
+      const size_t srcSample = v.reversed ? (start + sliceLen - 1 - v.samplePosition) : (start + v.samplePosition);
       for (int ch = 0; ch < numOutCh; ++ch)
       {
         const int srcCh = std::min(ch, numSrcCh - 1);
@@ -1328,6 +1415,19 @@ std::unique_ptr<juce::XmlElement> SliceShufflePluginProcessor::createFullStateXm
       }
       xml->setAttribute(kMutedPositionsAttr, mutedString);
     }
+    if (!prepared->reversedLogicalPositions.empty())
+    {
+      juce::String revString;
+      bool first = true;
+      for (size_t pos : prepared->reversedLogicalPositions)
+      {
+        if (!first)
+          revString << ",";
+        revString << static_cast<int>(pos);
+        first = false;
+      }
+      xml->setAttribute(kReversedPositionsAttr, revString);
+    }
   }
 
   return xml;
@@ -1370,6 +1470,20 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
       const int v = t.getIntValue();
       if (v >= 0)
         pendingMutedLogicalPositions_.insert(static_cast<size_t>(v));
+    }
+  }
+  pendingReversedLogicalPositions_.clear();
+  const juce::String revStr = xml.getStringAttribute(kReversedPositionsAttr, {});
+  if (revStr.isNotEmpty())
+  {
+    juce::StringArray tokens;
+    tokens.addTokens(revStr, ",", "");
+    tokens.removeEmptyStrings();
+    for (const auto& t : tokens)
+    {
+      const int v = t.getIntValue();
+      if (v >= 0)
+        pendingReversedLogicalPositions_.insert(static_cast<size_t>(v));
     }
   }
 
@@ -1455,12 +1569,13 @@ void SliceShufflePluginProcessor::resetArrangement()
   std::vector<size_t> identityOrder(n);
   std::iota(identityOrder.begin(), identityOrder.end(), size_t(0));
 
-  if (state->playbackOrder == identityOrder && state->mutedLogicalPositions.empty())
+  if (state->playbackOrder == identityOrder && state->mutedLogicalPositions.empty() && state->reversedLogicalPositions.empty())
     return;
-  pushUndoEntry(state->playbackOrder);
+  pushUndoEntry(state->playbackOrder, {}, state->mutedLogicalPositions, state->reversedLogicalPositions);
   auto newState = std::make_shared<PreparedState>(*state);
   newState->playbackOrder = std::move(identityOrder);
   newState->mutedLogicalPositions.clear();
+  newState->reversedLogicalPositions.clear();
 
   applyNewPreparedState(std::move(newState));
 }
@@ -1609,21 +1724,25 @@ void SliceShufflePluginProcessor::renderWindowToBuffer(const PreparedState& stat
 
     const bool isMuted = !state.mutedLogicalPositions.empty() &&
                          state.mutedLogicalPositions.count(logical) != 0;
+    const bool isReversed = !state.reversedLogicalPositions.empty() &&
+                            state.reversedLogicalPositions.count(logical) != 0;
 
     if (!isMuted)
     {
-      for (int ch = 0; ch < numCh; ++ch)
+      if (isReversed)
       {
-        out.copyFrom(ch,
-                     static_cast<int>(writePos),
-                     state.buffer,
-                     ch,
-                     srcStart,
-                     len);
+        for (int ch = 0; ch < numCh; ++ch)
+          for (int j = 0; j < len; ++j)
+            out.setSample(ch, static_cast<int>(writePos) + j,
+                         state.buffer.getSample(ch, srcStart + len - 1 - j));
+      }
+      else
+      {
+        for (int ch = 0; ch < numCh; ++ch)
+          out.copyFrom(ch, static_cast<int>(writePos), state.buffer, ch, srcStart, len);
       }
       applySliceFades(out, static_cast<int>(writePos), len, fadeSamples, fadeSamples, applyFadeIn, applyFadeOut);
     }
-    // Always advance writePos so timing/layout stays the same, even if muted (silence).
     writePos += static_cast<size_t>(len);
   }
 }
@@ -1711,16 +1830,21 @@ void SliceShufflePluginProcessor::renderSampleRangeToBuffer(const PreparedState&
 
     const bool isMuted = !state.mutedLogicalPositions.empty() &&
                          state.mutedLogicalPositions.count(logical) != 0;
+    const bool isReversed = !state.reversedLogicalPositions.empty() &&
+                            state.reversedLogicalPositions.count(logical) != 0;
     if (!isMuted)
     {
-      for (int ch = 0; ch < numCh; ++ch)
+      if (isReversed)
       {
-        out.copyFrom(ch,
-                     static_cast<int>(writePos),
-                     state.buffer,
-                     ch,
-                     srcStart,
-                     len);
+        for (int ch = 0; ch < numCh; ++ch)
+          for (int j = 0; j < len; ++j)
+            out.setSample(ch, static_cast<int>(writePos) + j,
+                         state.buffer.getSample(ch, srcStart + len - 1 - j));
+      }
+      else
+      {
+        for (int ch = 0; ch < numCh; ++ch)
+          out.copyFrom(ch, static_cast<int>(writePos), state.buffer, ch, srcStart, len);
       }
       applySliceFadesSegment(out, static_cast<int>(writePos), len, offsetInSliceStart, sliceLen, fadeSamples,
                             applyFadeInAtStart, applyFadeOutAtEnd);

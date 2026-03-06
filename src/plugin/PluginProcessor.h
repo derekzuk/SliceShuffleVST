@@ -106,6 +106,9 @@ public:
    *  playbackOrder shrinks; muted positions are remapped to the new indices. */
   void removeSelectedSlices(const std::unordered_set<size_t>& selectedPositions);
 
+  /** Toggle reverse playback for selected slices (audio plays backwards; waveform display updates). */
+  void reverseSelectedSlices(const std::unordered_set<size_t>& selectedPositions);
+
   /** Play the loaded sample from the start for 5 seconds (from UI). */
   void startPreview();
   /** Stop preview playback (from UI). */
@@ -147,13 +150,13 @@ private:
   // Helpers for non-destructive rearrange/preview.
   std::pair<size_t, size_t> getWindowSliceRange(const PreparedState& state) const;
 
-  // Undo/redo for arrangement (playback order) and optionally mute state. gen_ invalidates entries on load/regenerate.
+  // Undo/redo for arrangement (playback order) and optionally mute/reversed state. gen_ invalidates entries on load/regenerate.
   struct UndoEntry {
     uint64_t gen{0};
     std::vector<size_t> order;
     std::optional<std::unordered_set<size_t>> selectionToRestore;
-    /** If set, restore mutedLogicalPositions to this set (for silence/unsilence undo). */
     std::optional<std::unordered_set<size_t>> mutedToRestore;
+    std::optional<std::unordered_set<size_t>> reversedToRestore;
   };
   static constexpr size_t kMaxUndoSteps = 50;
   std::deque<UndoEntry> undo_;
@@ -162,7 +165,8 @@ private:
   std::optional<std::unordered_set<size_t>> pendingRestoreSelection_;
   void pushUndoEntry(std::vector<size_t> currentOrder,
                     std::optional<std::unordered_set<size_t>> selectionToRestore = std::nullopt,
-                    std::optional<std::unordered_set<size_t>> mutedToRestore = std::nullopt);
+                    std::optional<std::unordered_set<size_t>> mutedToRestore = std::nullopt,
+                    std::optional<std::unordered_set<size_t>> reversedToRestore = std::nullopt);
   void incrementGeneration();
 
   juce::AudioProcessorValueTreeState apvts;
@@ -175,10 +179,11 @@ private:
   juce::String loadedSamplePath_;
   mutable std::shared_mutex stateMutex_;
 
-  // When restoring from saved state we may have a custom playback order
-  // and muted positions to apply after the sample has been (re)loaded.
+  // When restoring from saved state we may have a custom playback order,
+  // muted positions, and reversed positions to apply after the sample has been (re)loaded.
   std::vector<size_t> pendingPlaybackOrder_;
   std::unordered_set<size_t> pendingMutedLogicalPositions_;
+  std::unordered_set<size_t> pendingReversedLogicalPositions_;
 
   juce::ThreadPool loadPool_{1};
   std::atomic<uint64_t> loadJobId_{0};
@@ -192,6 +197,7 @@ private:
     bool active{false};
     int noteId{0};
     float gain{1.f};
+    bool reversed{false};
   };
   std::vector<Voice> voices_;
   static constexpr int kMaxVoices = 16;

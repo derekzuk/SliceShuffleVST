@@ -16,4 +16,6 @@ struct PreparedState {
   std::vector<size_t> playbackOrder;
   /** Logical positions (indices into playbackOrder) that should be treated as silent (non-destructive mute). */
   std::unordered_set<size_t> mutedLogicalPositions;
+  /** Logical positions whose slice audio should be played backwards. */
+  std::unordered_set<size_t> reversedLogicalPositions;
 };

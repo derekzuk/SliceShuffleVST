@@ -15,6 +15,11 @@ constexpr const char* kWindowBeatsId = "windowBeats";
 constexpr const char* kWindowPositionId = "windowPosition";
 constexpr const char* kStateVersionAttr = "stateVersion";
 constexpr const char* kSamplePathAttr = "samplePath";
+constexpr const char* kFileNameAttr = "fileName";
+constexpr const char* kFileSizeAttr = "fileSize";
+constexpr const char* kFileLastModifiedAttr = "fileLastModified";
+constexpr const char* kEditorWidthAttr = "editorW";
+constexpr const char* kEditorHeightAttr = "editorH";
 constexpr const char* kPlaybackOrderAttr = "playbackOrder";
 constexpr const char* kMutedPositionsAttr = "mutedPositions";
 constexpr const char* kReversedPositionsAttr = "reversedPositions";
@@ -1364,10 +1369,9 @@ void SliceShufflePluginProcessor::setStateInformation(const void* data, int size
   std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
   if (xml)
   {
-    // Session/host restore: restore params but do not auto-load the last sample.
-    restoreStateFromXml(*xml, false);
-    // Reset waveform to identity order when restoring from memory (startup/session).
-    resetArrangement();
+    // Project restore: restore params, sample path, slice order, and editor size.
+    // Reload WAV from path (or set Missing), apply saved playback order/muted/reversed.
+    restoreStateFromXml(*xml, true);
   }
 }
 
@@ -1381,13 +1385,33 @@ std::unique_ptr<juce::XmlElement> SliceShufflePluginProcessor::createFullStateXm
   // Version for future-proofing
   xml->setAttribute(kStateVersionAttr, kCurrentStateVersion);
 
-  // Persist the sample path (path-based loading strategy)
+  // Persist sample path and metadata (for missing-file detection / relink)
   {
     std::shared_lock lock(stateMutex_);
     xml->setAttribute(kSamplePathAttr, loadedSamplePath_);
+    if (loadedSamplePath_.isNotEmpty())
+    {
+      xml->setAttribute(kFileNameAttr, loadedSampleDisplayName_);
+      juce::File f(loadedSamplePath_);
+      if (f.existsAsFile())
+      {
+        xml->setAttribute(kFileSizeAttr, juce::String(static_cast<juce::int64>(f.getSize())));
+        xml->setAttribute(kFileLastModifiedAttr, juce::String(f.getLastModificationTime().toMilliseconds()));
+      }
+    }
   }
 
-  // Persist playback order (and duplicated slices) and muted positions
+  // Persist editor size so host project restore reopens same window size
+  if (savedEditorW_ > 0 && savedEditorH_ > 0)
+  {
+    xml->setAttribute(kEditorWidthAttr, savedEditorW_);
+    xml->setAttribute(kEditorHeightAttr, savedEditorH_);
+  }
+
+  // Persist playback order (and duplicated slices) and muted/reversed positions.
+  // Always set these from current prepared state so we overwrite any stale values
+  // that may be in the APVTS tree from a previous restore (replaceState stores
+  // our custom attributes in the tree; copyState/createXml would otherwise re-serialize them).
   if (auto prepared = getPreparedState())
   {
     if (!prepared->playbackOrder.empty())
@@ -1402,32 +1426,30 @@ std::unique_ptr<juce::XmlElement> SliceShufflePluginProcessor::createFullStateXm
       }
       xml->setAttribute(kPlaybackOrderAttr, orderString);
     }
-    if (!prepared->mutedLogicalPositions.empty())
+    else
+      xml->setAttribute(kPlaybackOrderAttr, "");
+
+    juce::String mutedString;
+    bool first = true;
+    for (size_t pos : prepared->mutedLogicalPositions)
     {
-      juce::String mutedString;
-      bool first = true;
-      for (size_t pos : prepared->mutedLogicalPositions)
-      {
-        if (!first)
-          mutedString << ",";
-        mutedString << static_cast<int>(pos);
-        first = false;
-      }
-      xml->setAttribute(kMutedPositionsAttr, mutedString);
+      if (!first)
+        mutedString << ",";
+      mutedString << static_cast<int>(pos);
+      first = false;
     }
-    if (!prepared->reversedLogicalPositions.empty())
+    xml->setAttribute(kMutedPositionsAttr, mutedString);
+
+    juce::String revString;
+    first = true;
+    for (size_t pos : prepared->reversedLogicalPositions)
     {
-      juce::String revString;
-      bool first = true;
-      for (size_t pos : prepared->reversedLogicalPositions)
-      {
-        if (!first)
-          revString << ",";
-        revString << static_cast<int>(pos);
-        first = false;
-      }
-      xml->setAttribute(kReversedPositionsAttr, revString);
+      if (!first)
+        revString << ",";
+      revString << static_cast<int>(pos);
+      first = false;
     }
+    xml->setAttribute(kReversedPositionsAttr, revString);
   }
 
   return xml;
@@ -1487,6 +1509,10 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
     }
   }
 
+  // Restore saved editor size so editor opens at same size when created
+  savedEditorW_ = xml.getIntAttribute(kEditorWidthAttr, 0);
+  savedEditorH_ = xml.getIntAttribute(kEditorHeightAttr, 0);
+
   if (!restoreSamplePath)
   {
     // Session restore: start with no sample loaded, default window size and granularity.
@@ -1504,7 +1530,7 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
     return;
   }
 
-  // Preset load: restore sample path and kick off async load (or mark Missing)
+  // Preset/project restore: restore sample path and kick off async load (or mark Missing)
   const juce::String path = xml.getStringAttribute(kSamplePathAttr, {});
   if (path.isEmpty())
     return;
@@ -1518,8 +1544,17 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
   {
     std::unique_lock lock(stateMutex_);
     loadedSamplePath_ = path;
-    loadedSampleDisplayName_ = f.getFileName();
+    loadedSampleDisplayName_ = xml.getStringAttribute(kFileNameAttr, f.getFileName());
     setLoadStatus(LoadStatus::Missing);
+  }
+}
+
+void SliceShufflePluginProcessor::setSavedEditorSize(int w, int h)
+{
+  if (w > 0 && h > 0)
+  {
+    savedEditorW_ = w;
+    savedEditorH_ = h;
   }
 }
 

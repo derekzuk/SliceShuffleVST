@@ -136,6 +136,12 @@ public:
   /** If undo/redo restored a selection, returns it and clears; otherwise returns nullopt. Call from message thread after undo()/redo(). */
   std::optional<std::unordered_set<size_t>> takePendingRestoreSelection();
 
+  /** Saved editor size for project restore. 0 means use default. */
+  int getSavedEditorWidth() const { return savedEditorW_; }
+  int getSavedEditorHeight() const { return savedEditorH_; }
+  /** Called by editor when resized so state can persist editor size. */
+  void setSavedEditorSize(int w, int h);
+
 private:
   void applyNewPreparedState(std::shared_ptr<const PreparedState> state);
   void setLoadStatus(LoadStatus s);
@@ -214,6 +220,9 @@ private:
   juce::AudioBuffer<float> previewBuffer_;
 
   std::atomic<bool> loadingPreset_{false};
+
+  int savedEditorW_{0};
+  int savedEditorH_{0};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SliceShufflePluginProcessor)
 };

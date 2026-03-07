@@ -167,7 +167,9 @@ SliceShufflePluginEditor::SliceShufflePluginEditor(SliceShufflePluginProcessor& 
       processorRef.getValueTreeState().getRawParameterValue("granularity")->load()));
 
   startTimerHz(20);
-  setSize(720, 420);
+  const int w = processorRef.getSavedEditorWidth();
+  const int h = processorRef.getSavedEditorHeight();
+  setSize(w > 0 && h > 0 ? w : 720, h > 0 && w > 0 ? h : 420);
 }
 
 SliceShufflePluginEditor::~SliceShufflePluginEditor()
@@ -237,6 +239,8 @@ bool SliceShufflePluginEditor::keyPressed(const juce::KeyPress& key)
 
 void SliceShufflePluginEditor::resized()
 {
+  processorRef.setSavedEditorSize(getWidth(), getHeight());
+
   auto r = getLocalBounds().reduced(4);
   const int topH = 36;
   const int bottomH = sliceshuffle::UiTokens::bottomBarHeight;

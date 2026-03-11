@@ -1530,23 +1530,16 @@ void SliceShufflePluginProcessor::restoreStateFromXml(const juce::XmlElement& xm
     return;
   }
 
-  // Preset/project restore: restore sample path and kick off async load (or mark Missing)
+  // Preset/project restore: restore sample path and load WAV only if it still exists
   const juce::String path = xml.getStringAttribute(kSamplePathAttr, {});
   if (path.isEmpty())
     return;
 
   juce::File f(path);
   if (f.existsAsFile())
-  {
     loadSampleFromFile(f, true);  // apply saved playback order and muted positions when load completes
-  }
   else
-  {
-    std::unique_lock lock(stateMutex_);
-    loadedSamplePath_ = path;
-    loadedSampleDisplayName_ = xml.getStringAttribute(kFileNameAttr, f.getFileName());
-    setLoadStatus(LoadStatus::Missing);
-  }
+    clearSample();  // file moved/deleted: open without a loaded sample (Idle)
 }
 
 void SliceShufflePluginProcessor::setSavedEditorSize(int w, int h)

@@ -1,0 +1,25 @@
+SliceShuffle VST3 Installation (macOS)
+
+If macOS blocks the plugin with a message like:
+
+"Apple could not verify 'SliceShuffle.vst3' is free of malware"
+
+This is normal for unsigned plugins.
+
+To install:
+
+1. Copy SliceShuffle.vst3 to:
+
+   ~/Library/Audio/Plug-Ins/VST3/
+
+   or
+
+   /Library/Audio/Plug-Ins/VST3/
+
+2. If macOS blocks it, open Terminal and run:
+
+   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/SliceShuffle.vst3
+
+3. Restart FL Studio and rescan plugins.
+
+That's it.

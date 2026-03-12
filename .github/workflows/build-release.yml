@@ -73,6 +73,8 @@ jobs:
           VERSION="${VERSION#v}"
           [ -z "$VERSION" ] || [ "$VERSION" = "main" ] && VERSION="snapshot"
           mkdir -p release
+          # Include macOS install guide in the mac zip (if present)
+          [ -f docs/osx-install-guide.txt ] && cp docs/osx-install-guide.txt release/
           # JUCE puts outputs in <target>_artefacts/Release/ (or sometimes without Release on single-config)
           VST3=$(find build -type d -name 'SliceShuffle.vst3' 2>/dev/null | head -1)
           APP=$(find build -type d -name 'SliceShuffle.app' 2>/dev/null | head -1)
